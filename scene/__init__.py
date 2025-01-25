@@ -41,9 +41,9 @@ class Scene:
         self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            if args.gs_type == "gs_multi_mesh":
+            if args.gs_type == "gs_multi_mesh" or args.gs_type == "gs_mesh":
                 scene_info = sceneLoadTypeCallbacks["Colmap_Mesh"](
-                    args.source_path, args.images, args.eval, args.num_splats, args.meshes
+                    args.source_path, args.images, args.eval, args.num_splats[0], ['mesh']
                 )
             else:
                 scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)

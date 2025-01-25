@@ -9,6 +9,9 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import sys
+sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
+
 import torch
 from scene import Scene
 import os
@@ -20,7 +23,6 @@ from utils.general_utils import safe_state
 from argparse import ArgumentParser
 from arguments import ModelParams, PipelineParams, get_combined_args
 from games import gaussianModelRender
-
 
 def render_set(gs_type, model_path, name, iteration, views, gaussians, pipeline, background):
     render_path = os.path.join(model_path, name, "ours_{}".format(iteration), f"renders_{gs_type}")

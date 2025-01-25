@@ -17,6 +17,7 @@ import trimesh
 import torch
 
 from games.multi_mesh_splatting.utils.graphics_utils import MultiMeshPointCloud
+from games.mesh_splatting.utils.graphics_utils import MeshPointCloud
 from scene.dataset_readers import (
     readColmapSceneInfo,
     readNerfSyntheticInfo,
@@ -35,7 +36,13 @@ from scene.colmap_loader import (
 
 from scene.dataset_readers import readColmapCameras
 
-def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8):
+def transform_vertices_function(vertices, c=1):
+    vertices = vertices[:, [0, 2, 1]]
+    vertices[:, 1] = -vertices[:, 1]
+    vertices *= c
+    return vertices
+
+def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8, masks_dir=None):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -48,7 +55,11 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8):
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, images_folder=os.path.join(path, reading_dir))
+    masks_dir = "masks" if masks_dir == None else masks_dir
+    cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
+                                           images_folder=os.path.join(path, reading_dir),
+                                           masks_folder=os.path.join(path, masks_dir),
+                                           )
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:
@@ -63,7 +74,7 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8):
     pcds = []
     ply_paths = []
     total_pts = 0
-    for i, (mesh, num) in enumerate(zip(meshes, num_splats)):
+    for i, (mesh, num) in enumerate(zip(meshes, [num_splats])):
         ply_path = os.path.join(path, f"points3d_{i}.ply")
 
         mesh_scene = trimesh.load(f'{path}/sparse/0/{mesh}.obj', force='mesh')
@@ -90,13 +101,14 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8):
 
         shs = np.random.random((num_pts, 3)) / 255.0
 
-        pcd = MultiMeshPointCloud(
+        pcd = MeshPointCloud(
             alpha=alpha,
             points=xyz,
             colors=SH2RGB(shs),
             normals=np.zeros((num_pts, 3)),
             vertices=vertices,
             faces=faces,
+            transform_vertices_function=transform_vertices_function,
             triangles=triangles.cuda()
         )
         pcds.append(pcd)
@@ -107,11 +119,11 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8):
         f"Generating random point cloud ({total_pts})..."
     )
 
-    scene_info = SceneInfo(point_cloud=pcds,
+    scene_info = SceneInfo(point_cloud=pcd,
                            train_cameras=train_cam_infos,
                            test_cameras=test_cam_infos,
                            nerf_normalization=nerf_normalization,
-                           ply_path=ply_paths)
+                           ply_path=ply_path)
     
     return scene_info
 

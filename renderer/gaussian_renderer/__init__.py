@@ -16,11 +16,37 @@ from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 import trimesh
 
+from utils.graphics_utils import focal2fov
+from scene.cameras import Camera
+
 def transform_vertices_function(vertices, c=1):
     vertices = vertices[:, [0, 2, 1]]
     vertices[:, 1] = -vertices[:, 1]
     vertices *= c
     return vertices
+
+def my_render(gaussians, pipeline, background, intrinsics, dims, R, T):
+    fx, fy, cx, cy = intrinsics
+    image_height, image_width = dims
+
+    FoVx = focal2fov(fx, image_width)
+    FoVy = focal2fov(fy, image_height)
+
+    cx = (cx - image_width / 2) / image_width * 2
+    cy = (cy - image_height / 2) / image_height * 2
+
+    dummy_image = torch.ones(3, image_height, image_width).float().to('cuda')
+    
+    cam = Camera(colmap_id=None, R=R.detach().cpu().numpy(), T=T.detach().cpu().numpy(), 
+                FoVx=FoVx, FoVy=FoVy, 
+                cx=cx, cy=cy,
+                image=dummy_image, 
+                gt_alpha_mask=None,
+                image_name=None, uid=None,
+                )
+        
+    res_pkg = render(cam, gaussians, pipeline, background)
+    return res_pkg
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
     """

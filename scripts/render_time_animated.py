@@ -11,6 +11,9 @@
 # This Games software is free for non-commercial, research and evaluation use
 #
 
+import sys
+sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
+
 import torch
 from scene import Scene
 import os
