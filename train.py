@@ -35,9 +35,33 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
+import pyrender
+import numpy as np
+import trimesh
+from utils.graphics_utils import c2c_orig, fov2focal
+from vine_prune.utils.mano import get_mano, get_faces
+
+def get_opengl_to_opencv_camera_trans() -> np.ndarray:
+    """Returns a transformation from OpenGL to OpenCV camera frame.
+
+    Returns:
+        A 4x4 transformation matrix (flipping Y and Z axes).
+    """
+
+    yz_flip = np.eye(4, dtype=np.float32)
+    yz_flip[1, 1], yz_flip[2, 2] = -1, -1
+    return yz_flip
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
              debug_from, save_xyz):
+    ###
+    renderer = None
+    ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
+    py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
+    mano = get_mano(flat_hand_mean=True,
+                    use_pca=False)
+    ###
+
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = gaussianModel[gs_type](dataset.sh_degree)
@@ -97,12 +121,92 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        if iteration >= 0:
+            height, width = viewpoint_cam.original_image.shape[1:]
+            if renderer is None:
+                renderer = pyrender.OffscreenRenderer(width, height)
+
+            betas = torch.zeros(1, 10).float().cuda()
+            hand_pose = torch.zeros(1, 45).float().cuda()
+
+            global_orient = torch.zeros(1, 3).float().cuda()
+            transl = torch.zeros(1, 3).float().cuda()
+
+            mano_out = mano(global_orient=global_orient,
+                            hand_pose=hand_pose,
+                            betas=betas,
+                            transl=transl)
+            vertices = mano_out.vertices.squeeze(0).cpu().numpy()
+            faces = get_faces()
+            trimesh_model = trimesh.Trimesh(vertices, faces, process=False)
+            mesh = pyrender.Mesh.from_trimesh(trimesh_model)
+            mesh_node = py_scene.add(mesh)
+
+            fx = fov2focal(viewpoint_cam.FoVx, width)
+            fy = fov2focal(viewpoint_cam.FoVy, height)
+            cx = c2c_orig(viewpoint_cam.cx, width)
+            cy = c2c_orig(viewpoint_cam.cy, height)
+
+            camera = pyrender.IntrinsicsCamera(fx=fx,
+                                               fy=fy,
+                                               cx=cx,
+                                               cy=cy,
+                                               znear=0.1,
+                                               zfar=3000.0)
+            
+            cam_R = viewpoint_cam.R.T
+            cam_t = viewpoint_cam.T
+            M = np.eye(4)
+            M[0:3, 0:3] = cam_R
+            M[0:3, 3] = cam_t
+            M_inv = np.linalg.inv(M)
+            trans_c2w = M_inv @ get_opengl_to_opencv_camera_trans()
+
+            camera_node = pyrender.Node(camera=camera, matrix=trans_c2w)
+            py_scene.add_node(camera_node)
+
+            light = pyrender.SpotLight(
+                    color=np.ones(3),
+                    intensity=2.4,
+                    innerConeAngle=np.pi / 16.0,
+                    outerConeAngle=np.pi / 6.0,
+                )
+            light_node = pyrender.Node(light=light, matrix=trans_c2w)
+            py_scene.add_node(light_node)
+
+            render_flags = pyrender.constants.RenderFlags.NONE
+            color, depth = renderer.render(py_scene, flags=render_flags)
+            mask = np.zeros_like(color)
+            mask[depth > 0] = [128, 128, 128]
+
+            py_scene.remove_node(camera_node)
+            py_scene.remove_node(light_node)
+            py_scene.remove_node(mesh_node)
+
+            gt_image = torch.FloatTensor((mask.astype(float) / 255.0).transpose(2, 0, 1)).cuda()
+
+            # import cv2
+            # cv2.imshow('test', cv2.cvtColor(color, cv2.COLOR_RGB2BGR))
+
+            # orig_im = (viewpoint_cam.original_image.cpu().numpy().transpose(1, 2, 0)*255).round().astype(np.uint8)
+            # cv2.imshow('test2', cv2.cvtColor(orig_im, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
+            # breakpoint()
+            
+            betas = None
+            hand_pose = None
+        else:
+            betas = None
+            hand_pose = None
+            gt_image = viewpoint_cam.original_image.cuda()
+
+        render_pkg = render(viewpoint_cam, gaussians, pipe, bg, 
+                            betas=betas, hand_pose=hand_pose, mano=mano)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], \
         render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
+        #gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         loss.backward()
@@ -269,3 +373,5 @@ if __name__ == "__main__":
 
     # All done
     print("\nTraining complete.")
+
+# python3 train.py -s data/mano_colmap/ -m output/mano_colmap --gs_type gs_mesh --meshes 'mesh' --num_splats 10 --iterations 7000 --sh_degree 0

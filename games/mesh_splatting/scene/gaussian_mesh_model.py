@@ -42,9 +42,29 @@ class GaussianMeshModel(GaussianModel):
         self.triangles = None
         self.eps_s0 = 1e-8
 
+        self.harmonic_mlp = nn.Sequential(
+            nn.Linear(19, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 45)
+        ).cuda()
+
     @property
     def get_xyz(self):
         return self._xyz
+    
+    def get_features_mlp(self, betas, hand_pose):
+        raise RuntimeError('not supported')
+        xyz = self._xyz
+        betas = betas.repeat(xyz.shape[0], 1)
+        hand_pose = hand_pose.repeat(xyz.shape[0], 1)
+
+        model_input = torch.concatenate((xyz, betas, hand_pose), dim=1)
+
+        features_dc = self._features_dc
+        features_rest = self._features_rest + self.harmonic_mlp(model_input).view(-1, 15, 3)
+        return torch.cat((features_dc, features_rest), dim=1)
 
     def create_from_pcd(self, pcd: MeshPointCloud, spatial_lr_scale: float):
 
@@ -212,6 +232,9 @@ class GaussianMeshModel(GaussianModel):
         path_model = path.replace('point_cloud.ply', 'model_params.pt')
         torch.save(save_dict, path_model)
 
+        path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
+        torch.save(self.harmonic_mlp.state_dict(), path_harmonic_mlp)
+
     def load_ply(self, path):
         self._load_ply(path)
         path_model = path.replace('point_cloud.ply', 'model_params.pt')
@@ -227,3 +250,6 @@ class GaussianMeshModel(GaussianModel):
         # point_cloud = params['point_cloud']
         self._alpha = nn.Parameter(alpha)
         self._scale = nn.Parameter(scale)
+
+        path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
+        self.harmonic_mlp.load_state_dict(torch.load(path_harmonic_mlp))

@@ -31,11 +31,23 @@ def render_set(gs_type, model_path, name, iteration, views, gaussians, pipeline,
     makedirs(render_path, exist_ok=True)
     makedirs(gts_path, exist_ok=True)
 
+    # if gs_type == 'gs_mesh':
+    #     betas = torch.zeros(1, 10).float().cuda()
+    #     hand_pose = torch.zeros(1, 6).float().cuda()
+    # else:
+    #     betas = None
+    #     hand_pose = None
+    #     raise RuntimeError('not yet')
+
     for idx, view in enumerate(tqdm(views, desc="Rendering progress")):
         rendering = render(view, gaussians, pipeline, background)["render"]
         gt = view.original_image[0:3, :, :]
         torchvision.utils.save_image(rendering, os.path.join(render_path, '{0:05d}'.format(idx) + ".png"))
         torchvision.utils.save_image(gt, os.path.join(gts_path, '{0:05d}'.format(idx) + ".png"))
+
+        depth = render(view, gaussians, pipeline, background)["depth"][0]
+        depth[depth > 0] = 1.0
+        torchvision.utils.save_image(depth, os.path.join(render_path, '{0:05d}'.format(idx) + "_mask.png"))
 
 
 def render_sets(gs_type: str, dataset : ModelParams, iteration : int, pipeline : PipelineParams, skip_train : bool, skip_test : bool):
