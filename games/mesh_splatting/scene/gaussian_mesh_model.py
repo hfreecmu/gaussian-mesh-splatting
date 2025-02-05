@@ -192,6 +192,36 @@ class GaussianMeshModel(GaussianModel):
         self.triangles = self.vertices[self.faces]
         self._calc_xyz()
 
+    def get_xyz_from_verts(self, vertices):
+        """
+        Function to control the alpha value.
+
+        Alpha is the distance of the center of the gauss
+         from the vertex of the triangle of the mesh.
+        Thus, for each center of the gauss, 3 alphas
+        are determined: alpha1+ alpha2+ alpha3.
+        For a point to be in the center of the vertex,
+        the alphas must meet the assumptions:
+        alpha1 + alpha2 + alpha3 = 1
+        and alpha1 + alpha2 +alpha3 >= 0
+        """
+        #self.alpha = torch.relu(self._alpha) + 1e-8
+        #self.alpha = self.alpha / self.alpha.sum(dim=-1, keepdim=True)
+        #self.triangles = self.vertices[self.faces]
+        #self._calc_xyz()
+        alpha = torch.relu(self._alpha) + 1e-8
+        alpha = alpha / alpha.sum(dim=-1, keepdim=True)
+        triangles = vertices[self.faces]
+
+        xyz = torch.matmul(
+            alpha,
+            triangles
+        )
+        xyz = xyz.reshape(
+                xyz.shape[0] * xyz.shape[1], 3
+            )
+        return xyz
+
     def training_setup(self, training_args):
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
@@ -219,7 +249,7 @@ class GaussianMeshModel(GaussianModel):
         additional_attrs = [
             '_alpha', 
             '_scale',
-            'point_cloud',
+            #'point_cloud',
             'triangles',
             'vertices',
             'faces'

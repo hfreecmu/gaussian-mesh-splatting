@@ -58,8 +58,15 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     renderer = None
     ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
     py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
-    mano = get_mano(flat_hand_mean=True,
+
+    flat_mano = get_mano(flat_hand_mean=True,
                     use_pca=False)
+    mano_mean = get_mano(flat_hand_mean=False,
+                        use_pca=False)
+    
+    mano_hand_pose_diff = flat_mano.pose_mean[3:] - mano_mean.pose_mean[3:]
+    hand_components = torch.FloatTensor(mano_mean.np_hand_components).cuda()
+    mano = flat_mano
     ###
 
     first_iter = 0
@@ -121,13 +128,19 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        if iteration >= 0:
+        if True:
             height, width = viewpoint_cam.original_image.shape[1:]
             if renderer is None:
                 renderer = pyrender.OffscreenRenderer(width, height)
 
-            betas = torch.zeros(1, 10).float().cuda()
-            hand_pose = torch.zeros(1, 45).float().cuda()
+            if False and iteration < 1000:
+                betas = torch.zeros(1, 10).float().cuda()
+                hand_pose = torch.zeros(1, 45).float().cuda()
+            else:
+                betas = torch.randn(1, 10).float().cuda()
+                hand_pose = torch.randn(1, 6).float().cuda()
+                hand_pose = torch.einsum('bi,ij->bj', [hand_pose, hand_components])
+                hand_pose = hand_pose - mano_hand_pose_diff
 
             global_orient = torch.zeros(1, 3).float().cuda()
             transl = torch.zeros(1, 3).float().cuda()
@@ -193,15 +206,13 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
             # cv2.waitKey(0)
             # breakpoint()
             
-            betas = None
-            hand_pose = None
+            vertices = torch.FloatTensor(vertices).cuda()
         else:
-            betas = None
-            hand_pose = None
+            vertices = None
             gt_image = viewpoint_cam.original_image.cuda()
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, 
-                            betas=betas, hand_pose=hand_pose, mano=mano)
+                            vertices=vertices)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], \
         render_pkg["visibility_filter"], render_pkg["radii"]
 

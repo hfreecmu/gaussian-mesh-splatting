@@ -19,8 +19,6 @@ import trimesh
 from utils.graphics_utils import focal2fov
 from scene.cameras import Camera
 
-from smplx.lbs import vertices2landmarks, find_dynamic_lmk_idx_and_bcoords
-
 def transform_vertices_function(vertices, c=1):
     vertices = vertices[:, [0, 2, 1]]
     vertices[:, 1] = -vertices[:, 1]
@@ -54,9 +52,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
            bg_color : torch.Tensor, 
            scaling_modifier = 1.0, 
            override_color = None,
-           betas = None,
-           hand_pose = None,
-           mano = None):
+           vertices = None,
+           ):
     """
     Render the scene. 
     
@@ -91,7 +88,11 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
-    _xyz = pc.get_xyz
+
+    if vertices is None:
+        _xyz = pc.get_xyz
+    else:
+        _xyz = pc.get_xyz_from_verts(vertices)
 
     means3D = _xyz
     means2D = screenspace_points
@@ -112,34 +113,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
     shs = None
     colors_precomp = None
-
-    if betas is None:
-        features = pc.get_features
-    else:
-        raise RuntimeError('Not supported yet')
-        features = pc.get_features_mlp(betas, hand_pose)
-
-        global_orient = torch.zeros(1, 3).float().cuda()
-        transl = torch.zeros(1, 3).float().cuda()
-
-        mano_out = mano(global_orient=global_orient,
-                           hand_pose=hand_pose,
-                           betas=betas,
-                           transl=transl)
-        
-        vertices = mano_out.vertices.squeeze(0).cpu().numpy()
-
-        full_pose = torch.cat([global_orient, hand_pose], dim=1)
-        full_pose += mano.pose_mean
-
-        lmk_idx_and_bcoords = find_dynamic_lmk_idx_and_bcoords(
-                vertices, full_pose, mano.dynamic_lmk_faces_idx,
-                mano.dynamic_lmk_bary_coords,
-                mano.neck_kin_chain,
-                pose2rot=True,
-            )
-        
-        breakpoint()
+    features = pc.get_features
 
     if override_color is None:
         if pipe.convert_SHs_python:
