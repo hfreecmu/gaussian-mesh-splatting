@@ -21,6 +21,13 @@ from utils.general_utils import inverse_sigmoid, rot_to_quat_batch
 from utils.sh_utils import RGB2SH
 from games.mesh_splatting.utils.graphics_utils import MeshPointCloud
 
+# hardcoding this for now
+# HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/hand_only/hand_obj/hold_fit_smooth_fb.npy'
+HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact/hand_obj/hold_fit_smooth_fb.npy'
+
+def read_np_data(path):
+    return np.load(path, allow_pickle=True).item()
+HAND_DATA = read_np_data(HAND_PATH)
 
 class GaussianMeshModel(GaussianModel):
 
@@ -106,6 +113,17 @@ class GaussianMeshModel(GaussianModel):
         self.prepare_scaling_rot()
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        self.global_orient = nn.Parameter(torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda())
+        self.transl = nn.Parameter(torch.from_numpy(HAND_DATA['right']['transl']).float().cuda())
+        self.hand_pose = nn.Parameter(torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda())
+        self.betas = nn.Parameter(torch.from_numpy(HAND_DATA['right']['betas'][0:1]).float().cuda())
+
+        # self.global_orient = torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda()
+        # self.transl = torch.from_numpy(HAND_DATA['right']['transl']).float().cuda()
+        # self.hand_pose = torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda()
+        # self.betas = torch.from_numpy(HAND_DATA['right']['betas']).float().cuda()
+
 
     def _calc_xyz(self):
         """
@@ -220,18 +238,70 @@ class GaussianMeshModel(GaussianModel):
         xyz = xyz.reshape(
                 xyz.shape[0] * xyz.shape[1], 3
             )
-        return xyz
+        
+        ###
+        def dot(v, u):
+            return (v * u).sum(dim=-1, keepdim=True)
+        
+        def proj(v, u):
+            """
+            projection of vector v onto subspace spanned by u
+
+            vector u is assumed to be already normalized
+            """
+            coef = dot(v, u)
+            return coef * u
+        
+        normals = torch.linalg.cross(
+            triangles[:, 1] - triangles[:, 0],
+            triangles[:, 2] - triangles[:, 0],
+            dim=1
+        )
+        v0 = normals / (torch.linalg.vector_norm(normals, dim=-1, keepdim=True) + self.eps_s0)
+        means = torch.mean(triangles, dim=1)
+        v1 = triangles[:, 1] - means
+        v1_norm = torch.linalg.vector_norm(v1, dim=-1, keepdim=True) + self.eps_s0
+        v1 = v1 / v1_norm
+        v2_init = triangles[:, 2] - means
+        v2 = v2_init - proj(v2_init, v0) - proj(v2_init, v1)  # Gram-Schmidt
+        v2 = v2 / (torch.linalg.vector_norm(v2, dim=-1, keepdim=True) + self.eps_s0)
+
+        s1 = v1_norm / 2.
+        s2 = dot(v2_init, v2) / 2.
+        s0 = self.eps_s0 * torch.ones_like(s1)
+        scales = torch.concat((s0, s1, s2), dim=1).unsqueeze(dim=1)
+        scales = scales.broadcast_to((*self.alpha.shape[:2], 3))
+        
+        scaling = torch.log(
+            torch.nn.functional.relu(self._scale * scales.flatten(start_dim=0, end_dim=1)) + self.eps_s0
+        )
+
+        rotation = torch.stack((v0, v1, v2), dim=1).unsqueeze(dim=1)
+        rotation = rotation.broadcast_to((*self.alpha.shape[:2], 3, 3)).flatten(start_dim=0, end_dim=1)
+        rotation = rotation.transpose(-2, -1)
+        rotation = rot_to_quat_batch(rotation)
+        ###
+
+        scaling = self.scaling_activation(scaling)
+        rotation = self.rotation_activation(rotation)
+
+        return xyz, rotation, scaling
 
     def training_setup(self, training_args):
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
         l_params = [
-            {'params': [self.vertices], 'lr': training_args.vertices_lr, "name": "vertices"},
+            #{'params': [self.vertices], 'lr': training_args.vertices_lr, "name": "vertices"},
             {'params': [self._alpha], 'lr': training_args.alpha_lr, "name": "alpha"},
             {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-            {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"}
+            {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"},
+
+            {'params': [self.global_orient], 'lr': 1e-4, "name": "global_orient"},
+            {'params': [self.transl], 'lr': 1e-4, "name": "transl"},
+            {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
+            {'params': [self.betas], 'lr': 1e-4, "name": "betas"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -252,7 +322,11 @@ class GaussianMeshModel(GaussianModel):
             #'point_cloud',
             'triangles',
             'vertices',
-            'faces'
+            'faces',
+            'global_orient',
+            'betas',
+            'hand_pose',
+            'transl'
         ]
 
         save_dict = {}
@@ -283,3 +357,8 @@ class GaussianMeshModel(GaussianModel):
 
         path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
         self.harmonic_mlp.load_state_dict(torch.load(path_harmonic_mlp))
+
+        self.global_orient = nn.Parameter(params['global_orient'])
+        self.transl = nn.Parameter(params['transl'])
+        self.hand_pose = nn.Parameter(params['hand_pose'])
+        self.betas = nn.Parameter(params['betas'])

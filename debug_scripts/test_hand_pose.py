@@ -112,8 +112,8 @@ def run(splat_path, splat_params_path, splat_json_path,
 
     torchvision.utils.save_image(res_pgk['render'], im_path.replace('.png', '_tu.png'))
 
-SPLAT_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/mano_colmap/point_cloud/iteration_30000/point_cloud.ply'
-SPLAT_PARAMS_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/mano_colmap/point_cloud/iteration_30000/model_params_debug.pt'
+SPLAT_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/mano_colmap/point_cloud/iteration_7000/point_cloud.ply'
+SPLAT_PARAMS_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/mano_colmap/point_cloud/iteration_7000/model_params.pt'
 SPLAT_JSON_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/mano_colmap/cameras.json'
 DEBUG_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand'
 MANO_POSE_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact/hand_obj/bak_with_jts/hold_fit_opt.npy'

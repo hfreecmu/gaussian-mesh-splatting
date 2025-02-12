@@ -34,7 +34,6 @@ class CameraInfo(NamedTuple):
     cx: np.array
     cy: np.array
     image: np.array
-    object_mask: np.array
     image_path: str
     image_name: str
     width: int
@@ -114,11 +113,16 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, masks_folde
         object_mask = np.array(copy.deepcopy(Image.open(mask_path)))
         object_mask = object_mask.astype(float) / 255.0
 
+        image = np.array(image)
+        image[object_mask == 0.0] = [0, 0, 0]
+        image = Image.fromarray(image)
+
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, 
                               cx=cy, cy=cy,
-                              image=image, object_mask=object_mask,
+                              image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
+        
     sys.stdout.write('\n')
     return cam_infos
 

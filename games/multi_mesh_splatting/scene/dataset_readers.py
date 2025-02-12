@@ -77,7 +77,7 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8, 
     for i, (mesh, num) in enumerate(zip(meshes, [num_splats])):
         ply_path = os.path.join(path, f"points3d_{i}.ply")
 
-        mesh_scene = trimesh.load(f'{path}/sparse/0/{mesh}.obj', force='mesh')
+        mesh_scene = trimesh.load(f'{path}/{mesh}.obj', force='mesh')
         vertices = mesh_scene.vertices
         faces = mesh_scene.faces
         triangles = torch.tensor(mesh_scene.triangles).float()  # equal vertices[faces]
@@ -92,6 +92,8 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8, 
             num_pts_each_triangle,
             3
         )
+
+        # alpha = alpha / alpha.sum(dim=-1, keepdim=True)
 
         xyz = torch.matmul(
             alpha,
@@ -108,7 +110,8 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8, 
             normals=np.zeros((num_pts, 3)),
             vertices=vertices,
             faces=faces,
-            transform_vertices_function=transform_vertices_function,
+            # transform_vertices_function=transform_vertices_function,
+            transform_vertices_function=None,
             triangles=triangles.cuda()
         )
         pcds.append(pcd)

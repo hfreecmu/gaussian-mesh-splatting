@@ -18,6 +18,7 @@ import trimesh
 
 from utils.graphics_utils import focal2fov
 from scene.cameras import Camera
+import pytorch3d.transforms
 
 def transform_vertices_function(vertices, c=1):
     vertices = vertices[:, [0, 2, 1]]
@@ -25,7 +26,8 @@ def transform_vertices_function(vertices, c=1):
     vertices *= c
     return vertices
 
-def my_render(gaussians, pipeline, background, intrinsics, dims, R, T):
+def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
+              vertices=None):
     fx, fy, cx, cy = intrinsics
     image_height, image_width = dims
 
@@ -45,7 +47,8 @@ def my_render(gaussians, pipeline, background, intrinsics, dims, R, T):
                 image_name=None, uid=None,
                 )
         
-    res_pkg = render(cam, gaussians, pipeline, background)
+    res_pkg = render(cam, gaussians, pipeline, background,
+                     vertices=vertices)
     return res_pkg
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, 
@@ -91,8 +94,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
 
     if vertices is None:
         _xyz = pc.get_xyz
+        scales = pc.get_scaling
+        rotations = pc.get_rotation
     else:
-        _xyz = pc.get_xyz_from_verts(vertices)
+        _xyz, rotations, scales = pc.get_xyz_from_verts(vertices)
 
     means3D = _xyz
     means2D = screenspace_points
@@ -100,14 +105,16 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
-    scales = None
-    rotations = None
+    #scales = None
+    #rotations = None
     cov3D_precomp = None
     if pipe.compute_cov3D_python:
+        raise RuntimeError('not supported right now')
         cov3D_precomp = pc.get_covariance(scaling_modifier)
     else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
+        pass
+        # scales = pc.get_scaling
+        # rotations = pc.get_rotation
 
     # If precomputed colors are provided, use them. Otherwise, if it is desired to precompute colors
     # from SHs in Python, do it. If not, then SH -> RGB conversion will be done by rasterizer.
@@ -117,9 +124,22 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
 
     if override_color is None:
         if pipe.convert_SHs_python:
+            raise RuntimeError('not supported yet')
             shs_view = features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+        elif vertices is not None:
+            shs_view = features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(features.shape[0], 1))
+            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+
+            rot_mats = pytorch3d.transforms.quaternion_to_matrix(rotations)
+            R_T = rot_mats.permute(0, 2, 1)
+            # R_T = rot_mats
+
+            dir_pp_normalized = torch.einsum('bij,bj->bi', R_T, dir_pp_normalized)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
         else:

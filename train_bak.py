@@ -55,10 +55,20 @@ def get_opengl_to_opencv_camera_trans() -> np.ndarray:
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
              debug_from, save_xyz):
     ###
-    mano = get_mano(flat_hand_mean=True,
+    renderer = None
+    ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
+    py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
+
+    flat_mano = get_mano(flat_hand_mean=True,
                     use_pca=False)
-    ###
+    mano_mean = get_mano(flat_hand_mean=False,
+                        use_pca=False)
     
+    mano_hand_pose_diff = flat_mano.pose_mean[3:] - mano_mean.pose_mean[3:]
+    hand_components = torch.FloatTensor(mano_mean.np_hand_components).cuda()
+    mano = flat_mano
+    ###
+
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = gaussianModel[gs_type](dataset.sh_degree)
@@ -68,13 +78,6 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
-
-    # ### update alpha and get rots
-    # gaussians.update_alpha()
-    # gaussians.prepare_scaling_rot()
-
-    # default_rot = gaussians.get_rotation
-    # ###
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -124,101 +127,89 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
             pipe.debug = True
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
-        
-        vertices = None
-        gt_image = viewpoint_cam.original_image.cuda()
 
-        image_name = viewpoint_cam.image_name
-        image_ind = int(image_name)
+        if True:
+            height, width = viewpoint_cam.original_image.shape[1:]
+            if renderer is None:
+                renderer = pyrender.OffscreenRenderer(width, height)
 
-        global_orient = gaussians.global_orient[image_ind:image_ind+1]
-        transl = gaussians.transl[image_ind:image_ind+1]
-        hand_pose = gaussians.hand_pose[image_ind:image_ind+1]
-        betas = gaussians.betas[0:1]
+            if iteration < 1000:
+                betas = torch.zeros(1, 10).float().cuda()
+                hand_pose = torch.zeros(1, 45).float().cuda()
+            else:
+                betas = torch.randn(1, 10).float().cuda()
+                hand_pose = torch.randn(1, 6).float().cuda()
+                hand_pose = torch.einsum('bi,ij->bj', [hand_pose, hand_components])
+                hand_pose = hand_pose - mano_hand_pose_diff
 
-        mano_out = mano(global_orient=global_orient,
-                        hand_pose=hand_pose,
-                        betas=betas,
-                        transl=transl)
-        
-        vertices = mano_out.vertices[0]
+            global_orient = torch.zeros(1, 3).float().cuda()
+            transl = torch.zeros(1, 3).float().cuda()
 
-        # ###
-        # import cv2
-        
-        # # verts = vertices.cpu().numpy()
-        # test_verts, rotation, scaling = gaussians.get_xyz_from_verts(vertices)
-        # verts = test_verts.detach().cpu().numpy()
+            mano_out = mano(global_orient=global_orient,
+                            hand_pose=hand_pose,
+                            betas=betas,
+                            transl=transl)
+            vertices = mano_out.vertices.squeeze(0).cpu().numpy()
+            faces = get_faces()
+            trimesh_model = trimesh.Trimesh(vertices, faces, process=False)
+            mesh = pyrender.Mesh.from_trimesh(trimesh_model)
+            mesh_node = py_scene.add(mesh)
 
-        # K = np.loadtxt('/home/hfreeman/harry_ws/gopro/datasets/simple_manip/hand_only/cam_K.txt')
-        # proj_verts = verts @ K.T
-        # proj_verts = proj_verts[:, 0:2] / proj_verts[:, 2:]
+            fx = fov2focal(viewpoint_cam.FoVx, width)
+            fy = fov2focal(viewpoint_cam.FoVy, height)
+            cx = c2c_orig(viewpoint_cam.cx, width)
+            cy = c2c_orig(viewpoint_cam.cy, height)
 
-        # im = (gt_image.cpu().numpy().transpose(1, 2, 0)*255).round().astype(np.uint8)
-        # im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR)
+            camera = pyrender.IntrinsicsCamera(fx=fx,
+                                               fy=fy,
+                                               cx=cx,
+                                               cy=cy,
+                                               znear=0.1,
+                                               zfar=3000.0)
+            
+            cam_R = viewpoint_cam.R.T
+            cam_t = viewpoint_cam.T
+            M = np.eye(4)
+            M[0:3, 0:3] = cam_R
+            M[0:3, 3] = cam_t
+            M_inv = np.linalg.inv(M)
+            trans_c2w = M_inv @ get_opengl_to_opencv_camera_trans()
 
-        # im = cv2.resize(im, (1920,1080))
+            camera_node = pyrender.Node(camera=camera, matrix=trans_c2w)
+            py_scene.add_node(camera_node)
 
-        # for x, y in proj_verts:
-        #     im = cv2.circle(im, (int(x), int(y)), 2, [0, 0, 255], -1)
+            light = pyrender.SpotLight(
+                    color=np.ones(3),
+                    intensity=2.4,
+                    innerConeAngle=np.pi / 16.0,
+                    outerConeAngle=np.pi / 6.0,
+                )
+            light_node = pyrender.Node(light=light, matrix=trans_c2w)
+            py_scene.add_node(light_node)
 
-        # im = cv2.resize(im, (gt_image.shape[2], gt_image.shape[1]))
-        # cv2.imshow('test', im)
+            render_flags = pyrender.constants.RenderFlags.NONE
+            color, depth = renderer.render(py_scene, flags=render_flags)
+            mask = np.zeros_like(color)
+            mask[depth > 0] = [128, 128, 128]
 
-        # #
-        # ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
-        # py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
+            py_scene.remove_node(camera_node)
+            py_scene.remove_node(light_node)
+            py_scene.remove_node(mesh_node)
 
-        # renderer = pyrender.OffscreenRenderer(1920, 1080)
-        # vertices = vertices.cpu().numpy()
-        # faces = get_faces()
-        # trimesh_model = trimesh.Trimesh(vertices, faces, process=False)
-        # mesh = pyrender.Mesh.from_trimesh(trimesh_model)
-        # mesh_node = py_scene.add(mesh)
+            # gt_image = torch.FloatTensor((mask.astype(float) / 255.0).transpose(2, 0, 1)).cuda()
+            gt_image = torch.FloatTensor((color.astype(float) / 255.0).transpose(2, 0, 1)).cuda()
 
-        # fx = K[0, 0]
-        # fy = K[1, 1]
-        # cx = K[0, 2]
-        # cy = K[1, 2]
-        # camera = pyrender.IntrinsicsCamera(fx=fx,
-        #                                     fy=fy,
-        #                                     cx=cx,
-        #                                     cy=cy,
-        #                                     znear=0.1,
-        #                                     zfar=3000.0)
-        
-        # M = np.eye(4)
-        # M_inv = np.linalg.inv(M)
-        # trans_c2w = M_inv @ get_opengl_to_opencv_camera_trans()
+            # import cv2
+            # cv2.imshow('test', cv2.cvtColor(color, cv2.COLOR_RGB2BGR))
 
-        # camera_node = pyrender.Node(camera=camera, matrix=trans_c2w)
-        # py_scene.add_node(camera_node)
-
-        # light = pyrender.SpotLight(
-        #         color=np.ones(3),
-        #         intensity=2.4,
-        #         innerConeAngle=np.pi / 16.0,
-        #         outerConeAngle=np.pi / 6.0,
-        #     )
-        # light_node = pyrender.Node(light=light, matrix=trans_c2w)
-        # py_scene.add_node(light_node)
-
-        # render_flags = pyrender.constants.RenderFlags.NONE
-        # color, depth = renderer.render(py_scene, flags=render_flags)
-        # mask = np.zeros_like(color)
-        # mask[depth > 0] = [128, 128, 128]
-
-        # py_scene.remove_node(camera_node)
-        # py_scene.remove_node(light_node)
-        # py_scene.remove_node(mesh_node)
-        # #
-
-        # color = cv2.resize(color, (gt_image.shape[2], gt_image.shape[1]))
-        # cv2.imshow('color', color)
-        # cv2.waitKey(0)
-        # breakpoint()
-        # ###
-
+            # orig_im = (viewpoint_cam.original_image.cpu().numpy().transpose(1, 2, 0)*255).round().astype(np.uint8)
+            # cv2.imshow('test2', cv2.cvtColor(orig_im, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
+            
+            vertices = torch.FloatTensor(vertices).cuda()
+        else:
+            vertices = None
+            gt_image = viewpoint_cam.original_image.cuda()
 
         render_pkg = render(viewpoint_cam, gaussians, pipe, bg, 
                             vertices=vertices)
@@ -346,6 +337,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
             tb_writer.add_scalar('total_points', scene.gaussians.get_xyz.shape[0], iteration)
         torch.cuda.empty_cache()
 
+
 if __name__ == "__main__":
     # Set up command line argument parser
     parser = ArgumentParser(description="Training script parameters")
@@ -393,4 +385,4 @@ if __name__ == "__main__":
     # All done
     print("\nTraining complete.")
 
-# python3 train.py -s data/hand_colmap/ -m output/hand_colmap --gs_type gs_mesh --meshes 'mesh' --num_splats 5 --iterations 30000 --sh_degree 3 --resolution 2
+# python3 train.py -s data/mano_colmap/ -m output/mano_colmap --gs_type gs_mesh --meshes 'mesh' --num_splats 10 --iterations 7000
