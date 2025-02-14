@@ -11,7 +11,8 @@
 
 import torch
 import math
-from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+# from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
+from diff_gauss import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 import trimesh
@@ -27,7 +28,7 @@ def transform_vertices_function(vertices, c=1):
     return vertices
 
 def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
-              vertices=None):
+              vertices=None, view_R=None, one_hot_labels=None):
     fx, fy, cx, cy = intrinsics
     image_height, image_width = dims
 
@@ -48,7 +49,7 @@ def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
                 )
         
     res_pkg = render(cam, gaussians, pipeline, background,
-                     vertices=vertices)
+                     vertices=vertices, view_R=view_R, one_hot_labels=one_hot_labels)
     return res_pkg
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, 
@@ -56,6 +57,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
            scaling_modifier = 1.0, 
            override_color = None,
            vertices = None,
+           view_R = None,
+           one_hot_labels=None,
            ):
     """
     Render the scene. 
@@ -74,6 +77,21 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
     tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
     viewpoint_camera.camera_center = viewpoint_camera.camera_center
+    # raster_settings = GaussianRasterizationSettings(
+    #     image_height=int(viewpoint_camera.image_height),
+    #     image_width=int(viewpoint_camera.image_width),
+    #     tanfovx=tanfovx,
+    #     tanfovy=tanfovy,
+    #     bg=bg_color,
+    #     scale_modifier=scaling_modifier,
+    #     viewmatrix=viewpoint_camera.world_view_transform,
+    #     projmatrix=viewpoint_camera.full_proj_transform,
+    #     sh_degree=pc.active_sh_degree,
+    #     campos=viewpoint_camera.camera_center,
+    #     prefiltered=False,
+    #     debug=pipe.debug,
+    #     antialiasing=pipe.antialiasing
+    # )
     raster_settings = GaussianRasterizationSettings(
         image_height=int(viewpoint_camera.image_height),
         image_width=int(viewpoint_camera.image_width),
@@ -87,7 +105,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
         debug=pipe.debug,
-        antialiasing=pipe.antialiasing
+        #antialiasing=pipe.antialiasing
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -130,9 +148,17 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
+        elif view_R is not None:
+            shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
+            dir_pp = (_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+            dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
+
+            dir_pp_normalized = torch.einsum('bij,bj->bi', view_R, dir_pp_normalized)
+            sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
+            colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
         elif vertices is not None:
             shs_view = features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(features.shape[0], 1))
+            dir_pp = (_xyz - viewpoint_camera.camera_center.repeat(features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
 
             rot_mats = pytorch3d.transforms.quaternion_to_matrix(rotations)
@@ -147,8 +173,28 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
     else:
         colors_precomp = override_color
 
+    # # Rasterize visible Gaussians to image, obtain their radii (on screen). 
+    # rendered_image, radii, depth_image = rasterizer(
+    #     means3D = means3D,
+    #     means2D = means2D,
+    #     shs = shs,
+    #     colors_precomp = colors_precomp,
+    #     opacities = opacity,
+    #     scales = scales,
+    #     rotations = rotations,
+    #     cov3D_precomp = cov3D_precomp)
+
+    # # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
+    # # They will be excluded from value updates used in the splitting criteria.
+    # return {"render": rendered_image,
+    #         "viewspace_points": screenspace_points,
+    #         "visibility_filter" : radii > 0,
+    #         "radii": radii,
+    #         "depth": depth_image
+    #         }
+
     # Rasterize visible Gaussians to image, obtain their radii (on screen). 
-    rendered_image, radii, depth_image = rasterizer(
+    rendered_image, rendered_depth, rendered_norm, rendered_alpha, radii, extra = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -156,13 +202,16 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
         opacities = opacity,
         scales = scales,
         rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        cov3Ds_precomp = cov3D_precomp,
+        extra_attrs = one_hot_labels)
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {"render": rendered_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : radii > 0,
-            "radii": radii,
-            "depth": depth_image
-            }
+            "radii": radii, 
+            "depth": rendered_depth,
+            'norm': rendered_norm,
+            'alpha': rendered_alpha,
+            'extra': extra}

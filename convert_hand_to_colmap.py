@@ -5,8 +5,10 @@ import pycolmap
 import pytorch3d.transforms
 import torch
 import trimesh
+from scipy.spatial.transform import Rotation
 
 from scene.dataset_readers import storePly
+from vine_prune.utils.io import read_np_data
 
 def symlink(src, dst):
     if not os.path.exists(dst):
@@ -15,15 +17,18 @@ def symlink(src, dst):
 def read_np_data(path):
     return np.load(path, allow_pickle=True).item()
 
-def run(data_dir, output_dir):
+def run(data_dir, scene_dir, output_dir):
     image_dir = os.path.join(data_dir, 'undistorted')
     masks_dir = os.path.join(data_dir, 'mask_hand')
+    obj_masks_dir = os.path.join(data_dir, 'mask_obj')
 
     col_image_dir = os.path.join(output_dir, 'images')
     col_masks_dir = os.path.join(output_dir, 'masks')
+    col_obj_masks_dir = os.path.join(output_dir, 'mask_obj')
 
     symlink(os.path.abspath(image_dir), os.path.abspath(col_image_dir))
     symlink(os.path.abspath(masks_dir), os.path.abspath(col_masks_dir))
+    symlink(os.path.abspath(obj_masks_dir), os.path.abspath(col_obj_masks_dir))
 
     sparse_dir = os.path.join(output_dir, 'sparse')
     if not os.path.exists(sparse_dir):
@@ -36,14 +41,6 @@ def run(data_dir, output_dir):
     mesh_path = os.path.join(data_dir, 'meshes', 'hand_mesh.obj')
     col_mesh_path = os.path.join(output_dir, 'mesh.obj')
     shutil.copyfile(mesh_path, col_mesh_path)
-
-    # hand_data_path = os.path.join(data_dir, 'hand_obj', 'hold_fit_smooth_fb.npy')
-    # hand_data = read_np_data(hand_data_path)['right']
-
-    # global_orient = torch.from_numpy(hand_data['global_orient'])
-    # global_orient = pytorch3d.transforms.axis_angle_to_matrix(global_orient).numpy()
-
-    # transl = hand_data['transl']
 
     cam_K_path = os.path.join(data_dir, 'cam_K.txt')
     cam_K = np.loadtxt(cam_K_path)
@@ -76,8 +73,6 @@ def run(data_dir, output_dir):
     pc_images = []
     for image_id, image_name in enumerate(filenames):
         M = np.eye(4)
-        # M[0:3, 0:3] = global_orient[image_id]
-        # M[0:3, 3] = transl[image_id]
         M = M[0:3]
 
         pc_image = pycolmap.Image(
@@ -106,9 +101,44 @@ def run(data_dir, output_dir):
 
     storePly(ply_path, xyz, rgb)
 
+    scene_splat_path = os.path.join(scene_dir, 'splat', 'scale.ply')
+    col_scene_splat_path = os.path.join(output_dir, 'scene.ply')
+    shutil.copyfile(scene_splat_path, col_scene_splat_path)
+
+    obj_splat_path = os.path.join(data_dir, 'meshes', 'obj_splat.ply')
+    col_obj_splat_path = os.path.join(output_dir, 'obj_splat.ply')
+    shutil.copyfile(obj_splat_path, col_obj_splat_path)
+
+    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho.npy')
+    ho_data = read_np_data(ho_path)
+    scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
+    scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan
+
+    scene_pose_dir = os.path.join(data_dir, 'scene_registration', 'cam_poses')
+    for filename in os.listdir(scene_pose_dir):
+        if not filename.endswith('.npy'):
+            continue
+
+        image_ind = int(filename.split('.npy')[0])
+        scene_pose = np.loadtxt(os.path.join(scene_pose_dir, filename))
+        scene_go[image_ind] = Rotation.from_matrix(scene_pose[0:3, 0:3]).as_rotvec()
+        scene_tr[image_ind] = scene_pose[0:3, 3]
+
+    assert np.isnan(scene_go).sum() == 0
+    ho_data['scene'] = {
+        'global_orient': scene_go,
+        'transl': scene_tr
+    }
+
+    col_ho_path = os.path.join(output_dir, 'hold_init_ho_scene.npy')
+    np.save(col_ho_path, ho_data)
+
     print('Done')
 
 DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact'
-OUTPUT_DIR = 'data/hand_colmap'
+SCENE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/scenes/tree_scene'
+OUTPUT_DIR = 'data/comb_colmap'
 if __name__ == "__main__":
-    run(DATA_DIR, OUTPUT_DIR)
+    if not os.path.exists(OUTPUT_DIR):
+        os.mkdir(OUTPUT_DIR)
+    run(DATA_DIR, SCENE_DIR, OUTPUT_DIR)

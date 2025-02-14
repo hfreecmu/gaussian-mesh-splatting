@@ -26,6 +26,13 @@ class OptimizationParamsMesh(ParamGroup):
         self.random_background = False
         self.use_mesh = True
         self.lambda_dssim = 0.2
+
+        self.percent_dense = 0.01
+        self.position_lr_init = 0.00016
+        self.position_lr_final = 0.0000016
+        self.position_lr_delay_mult = 0.01
+        self.position_lr_max_steps = 30_000
+
         super().__init__(parser, "Optimization Parameters")
 
 

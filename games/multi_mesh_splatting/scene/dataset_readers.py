@@ -56,9 +56,12 @@ def readColmapMeshSceneInfo(path, images, eval, num_splats, meshes, llffhold=8, 
 
     reading_dir = "images" if images == None else images
     masks_dir = "masks" if masks_dir == None else masks_dir
+    obj_masks_dir = "mask_obj"
+
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
                                            images_folder=os.path.join(path, reading_dir),
                                            masks_folder=os.path.join(path, masks_dir),
+                                           obj_masks_folder=os.path.join(path, obj_masks_dir),
                                            )
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 

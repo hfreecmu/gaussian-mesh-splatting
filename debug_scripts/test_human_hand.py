@@ -29,7 +29,7 @@ def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     return yz_flip
 
 # # hardcoding this for now
-# HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/hand_only/hand_obj/hold_fit_smooth_fb.npy'
+# HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate/hand_obj/hold_fit_smooth_fb.npy'
 # def read_np_data(path):
 #     return np.load(path, allow_pickle=True).item()
 # HAND_DATA = read_np_data(HAND_PATH)
@@ -46,10 +46,10 @@ def run(splat_path, splat_json_path):
                     use_pca=False)
     ###
 
-    # global_orient = torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda()
-    # transl = torch.from_numpy(HAND_DATA['right']['transl']).float().cuda()
-    # hand_pose = torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda()
-    # betas = torch.from_numpy(HAND_DATA['right']['betas']).float().cuda()
+    # global_orient_full = torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda()
+    # transl_full = torch.from_numpy(HAND_DATA['right']['transl']).float().cuda()
+    # hand_pose_full = torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda()
+    # betas_full = torch.from_numpy(HAND_DATA['right']['betas']).float().cuda()
     global_orient_full = gaussians.global_orient
     transl_full = gaussians.transl
     hand_pose_full = gaussians.hand_pose
@@ -181,7 +181,7 @@ def run(splat_path, splat_json_path):
 
 
 
-SPLAT_PATH = 'output/hand_colmap/point_cloud/iteration_7000/point_cloud.ply'
-SPLAT_JSON_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/hand_colmap/cameras.json'
+SPLAT_PATH = 'output/comb_colmap/point_cloud/iteration_7000/point_cloud.ply'
+SPLAT_JSON_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/comb_colmap/cameras.json'
 with torch.no_grad():
     run(SPLAT_PATH, SPLAT_JSON_PATH)

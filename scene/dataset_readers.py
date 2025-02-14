@@ -38,6 +38,8 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
+    hand_mask: np.array
+    object_mask: np.array
 
 class SceneInfo(NamedTuple):
     point_cloud: NamedTuple
@@ -69,7 +71,10 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, masks_folder):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, 
+                      masks_folder, obj_masks_folder, 
+                      ):
+    
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -110,18 +115,24 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, masks_folde
         image = Image.open(image_path)
 
         mask_path = os.path.join(masks_folder, image_name + '.png')
-        object_mask = np.array(copy.deepcopy(Image.open(mask_path)))
-        object_mask = object_mask.astype(float) / 255.0
+        hand_mask = Image.open(mask_path)
 
-        image = np.array(image)
-        image[object_mask == 0.0] = [0, 0, 0]
-        image = Image.fromarray(image)
+        obj_mask_path = os.path.join(obj_masks_folder, image_name + '.png')
+        obj_mask = Image.open(obj_mask_path)
+
+        # image = np.array(image)
+        # image[hand_mask == 0.0] = [0, 0, 0]
+        # image = Image.fromarray(image)
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, 
                               cx=cy, cy=cy,
                               image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height)
+                              image_path=image_path, image_name=image_name, width=width, height=height,
+                              hand_mask=hand_mask,
+                              object_mask=obj_mask)
         cam_infos.append(cam_info)
+
+        break
         
     sys.stdout.write('\n')
     return cam_infos
@@ -165,10 +176,12 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, masks_dir=None):
 
     reading_dir = "images" if images == None else images
     masks_dir = "masks" if masks_dir == None else masks_dir
+    obj_masks_dir = "mask_obj"
 
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
                                            images_folder=os.path.join(path, reading_dir),
                                            masks_folder=os.path.join(path, masks_dir),
+                                           obj_masks_folder=os.path.join(path, obj_masks_dir),
                                            )
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 

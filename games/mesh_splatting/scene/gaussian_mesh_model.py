@@ -23,11 +23,11 @@ from games.mesh_splatting.utils.graphics_utils import MeshPointCloud
 
 # hardcoding this for now
 # HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/hand_only/hand_obj/hold_fit_smooth_fb.npy'
-HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact/hand_obj/hold_fit_smooth_fb.npy'
+#HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate/hand_obj/hold_fit_smooth_fb.npy'
 
-def read_np_data(path):
-    return np.load(path, allow_pickle=True).item()
-HAND_DATA = read_np_data(HAND_PATH)
+# def read_np_data(path):
+#     return np.load(path, allow_pickle=True).item()
+# HAND_DATA = read_np_data(HAND_PATH)
 
 class GaussianMeshModel(GaussianModel):
 
@@ -114,16 +114,22 @@ class GaussianMeshModel(GaussianModel):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        self.global_orient = nn.Parameter(torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda())
-        self.transl = nn.Parameter(torch.from_numpy(HAND_DATA['right']['transl']).float().cuda())
-        self.hand_pose = nn.Parameter(torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda())
-        self.betas = nn.Parameter(torch.from_numpy(HAND_DATA['right']['betas'][0:1]).float().cuda())
+        # self.global_orient = nn.Parameter(torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda())
+        # self.transl = nn.Parameter(torch.from_numpy(HAND_DATA['right']['transl']).float().cuda())
+        # self.hand_pose = nn.Parameter(torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda())
+        # self.betas = nn.Parameter(torch.from_numpy(HAND_DATA['right']['betas'][0:1]).float().cuda())
 
         # self.global_orient = torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda()
         # self.transl = torch.from_numpy(HAND_DATA['right']['transl']).float().cuda()
         # self.hand_pose = torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda()
         # self.betas = torch.from_numpy(HAND_DATA['right']['betas']).float().cuda()
 
+    def set_hand_data(self, mano_data):
+        self.global_orient = nn.Parameter(torch.from_numpy(mano_data['right']['global_orient']).float().cuda())
+        self.transl = nn.Parameter(torch.from_numpy(mano_data['right']['transl']).float().cuda())
+        self.hand_pose = nn.Parameter(torch.from_numpy(mano_data['right']['hand_pose']).float().cuda())
+        self.betas = nn.Parameter(torch.from_numpy(mano_data['right']['betas'][0:1]).float().cuda())
+        self.hand_scale = nn.Parameter(torch.from_numpy(mano_data['right']['scale']).float().cuda())
 
     def _calc_xyz(self):
         """
@@ -210,7 +216,7 @@ class GaussianMeshModel(GaussianModel):
         self.triangles = self.vertices[self.faces]
         self._calc_xyz()
 
-    def get_xyz_from_verts(self, vertices):
+    def get_xyz_from_verts(self, vertices, activate=True):
         """
         Function to control the alpha value.
 
@@ -282,8 +288,9 @@ class GaussianMeshModel(GaussianModel):
         rotation = rot_to_quat_batch(rotation)
         ###
 
-        scaling = self.scaling_activation(scaling)
-        rotation = self.rotation_activation(rotation)
+        if activate:
+            scaling = self.scaling_activation(scaling)
+            rotation = self.rotation_activation(rotation)
 
         return xyz, rotation, scaling
 
@@ -298,10 +305,11 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"},
 
-            {'params': [self.global_orient], 'lr': 1e-4, "name": "global_orient"},
-            {'params': [self.transl], 'lr': 1e-4, "name": "transl"},
-            {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
-            {'params': [self.betas], 'lr': 1e-4, "name": "betas"}
+            {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
+            {'params': [self.transl], 'lr': 1e-3, "name": "transl"},
+            {'params': [self.hand_pose], 'lr': 1e-3, "name": "hand_pose"},
+            {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
+            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -326,7 +334,8 @@ class GaussianMeshModel(GaussianModel):
             'global_orient',
             'betas',
             'hand_pose',
-            'transl'
+            'transl',
+            'hand_scale',
         ]
 
         save_dict = {}
@@ -362,3 +371,4 @@ class GaussianMeshModel(GaussianModel):
         self.transl = nn.Parameter(params['transl'])
         self.hand_pose = nn.Parameter(params['hand_pose'])
         self.betas = nn.Parameter(params['betas'])
+        self.hand_scale = nn.Parameter(params['hand_scale'])
