@@ -199,6 +199,7 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
         obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
+        one_hot_labels = torch.sigmoid(one_hot_labels)
 
         res_pgk = my_render(merged_gaussians, pipeline, background, intrinsics, dims, R.T, t,
                             vertices=None, view_R=merged_view_R, one_hot_labels=one_hot_labels)

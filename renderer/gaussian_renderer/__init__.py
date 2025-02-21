@@ -214,4 +214,5 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
             "depth": rendered_depth,
             'norm': rendered_norm,
             'alpha': rendered_alpha,
-            'extra': extra}
+            'extra': extra,
+            'colors_precomp': colors_precomp}

@@ -48,6 +48,7 @@ import copy
 from utils.rotation_main import rotate_splat_cuda, rotate_splat_cuda_angle
 from utils.general_utils import inverse_sigmoid
 from utils.graphics_utils import fov2focal, c2c_orig
+from scipy.spatial import cKDTree
 
 def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     """Returns a transformation from OpenGL to OpenCV camera frame.
@@ -105,12 +106,36 @@ def trans_gaussians(splatt_gaussians, rot, trans, scale, is_rot_angle=False,
 
     return splatt_gaussians
 
+def sel_gaussians(gaussians, view_R, one_hot_labels, indices):
+    new_gaussians = GaussianModel(gaussians.max_sh_degree)
+    new_gaussians.active_sh_degree = gaussians.max_sh_degree
+
+    new_gaussians._xyz = gaussians._xyz[indices]
+    new_gaussians._features_dc = gaussians._features_dc[indices]
+    new_gaussians._features_rest = gaussians._features_rest[indices]
+    new_gaussians._opacity = gaussians._opacity[indices]
+    new_gaussians._scaling = gaussians._scaling[indices]
+    new_gaussians._rotation = gaussians._rotation[indices]
+
+    if view_R is not None:
+        new_view_R = view_R[indices]
+    else:
+        new_view_R = None
+
+    if one_hot_labels is not None:
+        new_one_hot_labels = one_hot_labels[indices]
+    else:
+        new_one_hot_labels = None
+
+    return new_gaussians, new_view_R, new_one_hot_labels
+
 def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
                     view_R_hand, view_R_obj, view_R_scene,
                     hand_xyz, hand_rots, hand_scaling,
                     include_scene=True):
     
     merged_gaussians = GaussianModel(hand_gaussians.max_sh_degree)
+    # max or active?
     merged_gaussians.active_sh_degree = hand_gaussians.max_sh_degree
     
     if include_scene:
@@ -213,10 +238,10 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     # gauss_eid = nn.Parameter(gauss_eid)
     # seg_mlp = nn.Linear(16, 3).cuda()
 
-    obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 1.0
+    obj_one_hot = inverse_sigmoid(torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5)
     obj_one_hot = nn.Parameter(obj_one_hot)
 
-    hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 1.0
+    hand_one_hot = inverse_sigmoid(torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5)
     hand_one_hot = nn.Parameter(hand_one_hot)
 
     num_frames = len(scene.getTrainCameras().copy())
@@ -224,12 +249,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     # obj_brightness = torch.zeros(num_frames, 3).float().cuda()
     # obj_brightness = nn.Parameter(obj_brightness)
     if use_bg_color:
-        scene_brightness = torch.zeros(obj_rot.shape[0], 3).float().cuda()
+        scene_brightness = torch.zeros(num_frames, 3).float().cuda()
         scene_brightness = nn.Parameter(scene_brightness)
 
     rotation_activation = nn.functional.normalize
     l_params = [
-        {'params': [obj_rot], 'lr': 1e-3, "name": "obj_rot"},
+        {'params': [obj_rot], 'lr': 1e-4, "name": "obj_rot"},
         {'params': [obj_trans], 'lr': 1e-5, "name": "obj_trans"},
         # {'params': [obj_eid], 'lr': 1e-5, "name": "obj_eid"},
         # {'params': [gauss_eid], 'lr': 1e-5, "name": "gauss_eid"},
@@ -369,6 +394,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
         obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
+        one_hot_labels = torch.sigmoid(one_hot_labels)
         
         # one_hot_labels = torch.concat((gauss_eid, obj_eid))
         
@@ -376,8 +402,22 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
                             vertices=None, view_R=merged_view_R,
                             one_hot_labels=one_hot_labels)
         
+        sel_hand_gaussian_model, sel_view_R_hand, sel_one_hot_labels_hand = sel_gaussians(merged_gaussians, merged_view_R, 
+                                                                                          one_hot_labels[:, 0:1], torch.arange(hand_xyz.shape[0]))
+
+        hand_render_pkg = render(viewpoint_cam, sel_hand_gaussian_model, pipe, bg, 
+                            vertices=None, view_R=sel_view_R_hand,
+                            one_hot_labels=sel_one_hot_labels_hand)
+        
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], \
         render_pkg["visibility_filter"], render_pkg["radii"]
+
+        # hand_colors = render_pkg['colors_precomp'][0:gaussians.get_xyz.shape[0]]
+        # hand_xyz_np = hand_xyz.detach().cpu().numpy()
+        # tree = cKDTree(hand_xyz_np)
+        # indices = tree.query(hand_xyz_np, k=11)[0][:, 1:]
+        # color_diffs = hand_colors[:, None] - hand_colors[indices]
+        # color_loss = 0.1*(color_diffs**2).mean()
 
         if use_bg_color:
             frame_scene_brightness = scene_brightness[image_ind]
@@ -387,6 +427,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         label_res = render_pkg['extra']
         hand_label_res = label_res[0:1]
         obj_label_res = label_res[1:2]
+
+        sel_hand_label_res = hand_render_pkg['extra']
 
         # label_res = seg_mlp(label_res)
 
@@ -419,8 +461,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         # gt_seg = torch.concatenate((gt_hand_mask, gt_object_mask, torch.zeros_like(gt_hand_mask))).permute(1, 2, 0)
         # mask_loss = nn.functional.cross_entropy(label_res, gt_seg)
 
-        hand_mask_loss = 0.1*l1_loss(hand_label_res, gt_hand_mask)
-        obj_mask_loss = 0.1*l1_loss(obj_label_res, gt_object_mask)
+        hand_mask_loss = l1_loss(hand_label_res, gt_hand_mask)
+        obj_mask_loss = l1_loss(obj_label_res, gt_object_mask)
         # hand_mask_loss = 0.5*l1_loss(hand_label_res, gt_hand_mask)
         # obj_mask_loss = 0.5*l1_loss(obj_label_res, gt_object_mask)
         #gt_scene_mask = 1.0 - (gt_hand_mask + gt_object_mask).clamp(0.0, 1.0)
@@ -473,14 +515,14 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         mano_mask = torch.from_numpy(mano_mask).float().cuda().unsqueeze(0)
 
         # should mano mask loss be back prop?
-        mano_mask_loss = 0.5*l1_loss(hand_label_res, mano_mask)
+        mano_mask_loss = l1_loss(sel_hand_label_res, mano_mask)
 
         py_scene.remove_node(camera_node)
         py_scene.remove_node(light_node)
         py_scene.remove_node(mesh_node)
         ###
 
-        loss = loss + hand_mask_loss + obj_mask_loss + mano_mask_loss#+ op_loss # + scene_mask_loss
+        loss = loss + 0.1*hand_mask_loss + 0.1*obj_mask_loss + 0.5*mano_mask_loss #+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
