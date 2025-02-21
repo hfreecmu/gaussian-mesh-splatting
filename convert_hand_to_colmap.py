@@ -114,30 +114,30 @@ def run(data_dir, scene_dir, output_dir):
     scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
     scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan
 
-    scene_pose_dir = os.path.join(data_dir, 'scene_registration', 'cam_poses')
-    for filename in os.listdir(scene_pose_dir):
-        if not filename.endswith('.npy'):
-            continue
+    # scene_pose_dir = os.path.join(data_dir, 'scene_registration', 'cam_poses')
+    # for filename in os.listdir(scene_pose_dir):
+    #     if not filename.endswith('.npy'):
+    #         continue
 
-        image_ind = int(filename.split('.npy')[0])
-        scene_pose = np.loadtxt(os.path.join(scene_pose_dir, filename))
-        scene_go[image_ind] = Rotation.from_matrix(scene_pose[0:3, 0:3]).as_rotvec()
-        scene_tr[image_ind] = scene_pose[0:3, 3]
+    #     image_ind = int(filename.split('.npy')[0])
+    #     scene_pose = np.loadtxt(os.path.join(scene_pose_dir, filename))
+    #     scene_go[image_ind] = Rotation.from_matrix(scene_pose[0:3, 0:3]).as_rotvec()
+    #     scene_tr[image_ind] = scene_pose[0:3, 3]
 
-    assert np.isnan(scene_go).sum() == 0
-    ho_data['scene'] = {
-        'global_orient': scene_go,
-        'transl': scene_tr
-    }
+    # assert np.isnan(scene_go).sum() == 0
+    # ho_data['scene'] = {
+    #     'global_orient': scene_go,
+    #     'transl': scene_tr
+    # }
 
     col_ho_path = os.path.join(output_dir, 'hold_init_ho_scene.npy')
     np.save(col_ho_path, ho_data)
 
     print('Done')
 
-DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact'
+DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate'
 SCENE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/scenes/tree_scene'
-OUTPUT_DIR = 'data/comb_colmap'
+OUTPUT_DIR = 'data/0_pruner_rotate'
 if __name__ == "__main__":
     if not os.path.exists(OUTPUT_DIR):
         os.mkdir(OUTPUT_DIR)

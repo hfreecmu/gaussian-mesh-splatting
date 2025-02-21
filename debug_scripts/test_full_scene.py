@@ -72,10 +72,10 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
     gaussians.update_alpha()
     gaussians.prepare_scaling_rot()
 
-    scene_splat_path = os.path.join(splat_data_dir, 'scene.ply')
-    #scene_splat_path = os.path.join(splat_dir, 'scene_point_cloud.ply')
-    scene_gaussians = GaussianModel(3)
-    scene_gaussians.load_ply(scene_splat_path)
+    # scene_splat_path = os.path.join(splat_data_dir, 'scene.ply')
+    # #scene_splat_path = os.path.join(splat_dir, 'scene_point_cloud.ply')
+    # scene_gaussians = GaussianModel(3)
+    # scene_gaussians.load_ply(scene_splat_path)
 
     # obj_splat_path = os.path.join(splat_data_dir, 'obj_splat.ply')
     obj_splat_path = os.path.join(splat_dir, 'obj_point_cloud.ply')
@@ -95,9 +95,9 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
     obj_rot = pytorch3d.transforms.axis_angle_to_quaternion(obj_rot)
     obj_trans = torch.from_numpy(mano_data['object']['transl']).float().cuda()
 
-    scene_rot = torch.from_numpy(mano_data['scene']['global_orient']).float().cuda()
-    scene_rot = pytorch3d.transforms.axis_angle_to_quaternion(scene_rot)
-    scene_trans = torch.from_numpy(mano_data['scene']['transl']).float().cuda()
+    # scene_rot = torch.from_numpy(mano_data['scene']['global_orient']).float().cuda()
+    # scene_rot = pytorch3d.transforms.axis_angle_to_quaternion(scene_rot)
+    # scene_trans = torch.from_numpy(mano_data['scene']['transl']).float().cuda()
 
     ###
     mano = get_mano(flat_hand_mean=True,
@@ -130,15 +130,15 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
         obj_rot_frame = pytorch3d.transforms.quaternion_to_matrix(rotation_activation(obj_rot[image_ind:image_ind+1])).squeeze(0)
         obj_trans_frame = obj_trans[image_ind:image_ind+1].squeeze(0)
-        scene_rot_frame = pytorch3d.transforms.quaternion_to_matrix(rotation_activation(scene_rot[image_ind:image_ind+1])).squeeze(0)
-        scene_trans_frame = scene_trans[image_ind:image_ind+1].squeeze(0)
+        # scene_rot_frame = pytorch3d.transforms.quaternion_to_matrix(rotation_activation(scene_rot[image_ind:image_ind+1])).squeeze(0)
+        # scene_trans_frame = scene_trans[image_ind:image_ind+1].squeeze(0)
 
         obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
                                               None, harmonic=False, should_copy=False)
         view_R_obj = (obj_rot_frame.T).repeat(obj_gaussians_trans._xyz.shape[0], 1, 1)
-        scene_gaussians_trans = trans_gaussians(scene_gaussians, scene_rot_frame, scene_trans_frame, 
-                                              None, harmonic=False, should_copy=False)
-        view_R_scene = (scene_rot_frame.T).repeat(scene_gaussians_trans._xyz.shape[0], 1, 1)
+        # scene_gaussians_trans = trans_gaussians(scene_gaussians, scene_rot_frame, scene_trans_frame, 
+        #                                       None, harmonic=False, should_copy=False)
+        # view_R_scene = (scene_rot_frame.T).repeat(scene_gaussians_trans._xyz.shape[0], 1, 1)
 
         mano_out = mano(global_orient=global_orient,
                             hand_pose=hand_pose,
@@ -154,8 +154,8 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
         hand_xyz, hand_rots, hand_scaling = gaussians.get_xyz_from_verts(vertices, activate=False)
         
-        merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
-                                                          view_R_hand, view_R_obj, view_R_scene,
+        merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, None,
+                                                          view_R_hand, view_R_obj, None,
                                                           hand_xyz, hand_rots, hand_scaling, include_scene=False)
         # merged_gaussians, merged_view_R, one_hot_labels = debug_hand_gauss(gaussians, view_R_hand, 
         #                                                    hand_xyz, hand_rots, hand_scaling)
@@ -272,25 +272,25 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         if True or ind == 0:
             obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
                                               None, harmonic=True, should_copy=False)
-            scene_gaussians_trans = trans_gaussians(scene_gaussians, scene_rot_frame, scene_trans_frame, 
-                                              None, harmonic=True, should_copy=False)
+            # scene_gaussians_trans = trans_gaussians(scene_gaussians, scene_rot_frame, scene_trans_frame, 
+            #                                   None, harmonic=True, should_copy=False)
 
             view_R_obj = torch.zeros_like(view_R_obj)
             view_R_obj[:] = torch.eye(3)
 
-            view_R_scene = torch.zeros_like(view_R_scene)
-            view_R_scene[:] = torch.eye(3)
+            # view_R_scene = torch.zeros_like(view_R_scene)
+            # view_R_scene[:] = torch.eye(3)
 
-            merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
-                                                          view_R_hand, view_R_obj, view_R_scene,
+            merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, None,
+                                                          view_R_hand, view_R_obj, None,
                                                           hand_xyz, hand_rots, hand_scaling, include_scene=False)
             ply_path = os.path.join(output_dir, f'merged_{entry["img_name"]}.ply')
             merged_gaussians.save_ply(ply_path)
 
-EXP_NAME = 'comb_colmap'
+EXP_NAME = '0_pruner_rotate'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
 SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/data/{EXP_NAME}'
-IMAGE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact/undistorted'
+IMAGE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate/undistorted'
 OUTPUT_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand/'
 with torch.no_grad():
     run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, OUTPUT_DIR)

@@ -39,7 +39,7 @@ import pyrender
 import numpy as np
 import trimesh
 from scene.gaussian_model import GaussianModel
-from vine_prune.utils.mano import get_mano, scale_mano, get_faces
+from vine_prune.utils.mano import get_mano, scale_mano, get_faces, get_contact_idx
 from vine_prune.utils.io import read_np_data
 import pytorch3d.transforms
 import torch.nn as nn
@@ -49,6 +49,20 @@ from utils.rotation_main import rotate_splat_cuda, rotate_splat_cuda_angle
 from utils.general_utils import inverse_sigmoid
 from utils.graphics_utils import fov2focal, c2c_orig
 from scipy.spatial import cKDTree
+from pytorch3d.ops import knn_points
+import kaolin
+
+def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
+    distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
+
+    # inside or not
+    sign = kaolin.ops.mesh.check_sign(mesh_v_cano.detach(), mesh_f_cano.detach(), x_cano.detach()).float()
+
+    # inside: 1 -> 1 - 2 = -1, negative
+    # outside: 0 -> 1 - 0 = 1, positive
+    sign = 1 - 2 * sign
+    signed_distance = sign * distance  # SDF of points to mesh
+    return signed_distance
 
 def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     """Returns a transformation from OpenGL to OpenCV camera frame.
@@ -188,6 +202,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     
     ###
     mano = get_mano()
+    contact_idx = torch.LongTensor(get_contact_idx())
     ###
     
     first_iter = 0
@@ -220,6 +235,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     obj_trans = torch.from_numpy(mano_data['object']['transl']).float().cuda()
     obj_trans = nn.Parameter(obj_trans)
     hand_faces = get_faces()
+    hand_faces_torch = torch.LongTensor(hand_faces).cuda()
 
     # obj_eid = torch.randn(obj_gaussians._xyz.shape[0], 16).float().cuda()
     # obj_eid = nn.Parameter(obj_eid)
@@ -243,6 +259,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
     hand_one_hot = inverse_sigmoid(torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5)
     hand_one_hot = nn.Parameter(hand_one_hot)
+
+    cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d']).cuda()
 
     num_frames = len(scene.getTrainCameras().copy())
 
@@ -521,7 +539,16 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         py_scene.remove_node(mesh_node)
         ###
 
-        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss #+ color_loss
+        v3d_tips = vertices[contact_idx]
+        v3d_object = cano_obj_pts @ obj_rot_frame.T + obj_trans_frame
+
+        contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0), K=1, return_nn=False)[0]
+        contact_loss = contact_loss.mean()
+
+        sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
+        sdf_loss = torch.clamp(-sdf, min=0.00, max=0.005).mean()
+
+        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 1.0*contact_loss + 1.0*sdf_loss#+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
