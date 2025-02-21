@@ -72,8 +72,8 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
     gaussians.update_alpha()
     gaussians.prepare_scaling_rot()
 
-    #scene_splat_path = os.path.join(splat_data_dir, 'scene.ply')
-    scene_splat_path = os.path.join(splat_dir, 'scene_point_cloud.ply')
+    scene_splat_path = os.path.join(splat_data_dir, 'scene.ply')
+    #scene_splat_path = os.path.join(splat_dir, 'scene_point_cloud.ply')
     scene_gaussians = GaussianModel(3)
     scene_gaussians.load_ply(scene_splat_path)
 
@@ -84,6 +84,12 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
     mano_data_path = os.path.join(splat_dir, 'hold_opt_ho.npy')
     mano_data = read_np_data(mano_data_path)
+
+    obj_one_hot_path = os.path.join(splat_dir, 'obj_one_hot.pth')
+    obj_one_hot = torch.load(obj_one_hot_path)
+
+    hand_one_hot_path = os.path.join(splat_dir, 'hand_one_hot.pth')
+    hand_one_hot = torch.load(hand_one_hot_path)
 
     obj_rot = torch.from_numpy(mano_data['object']['global_orient']).float().cuda()
     obj_rot = pytorch3d.transforms.axis_angle_to_quaternion(obj_rot)
@@ -114,7 +120,7 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
     rotation_activation = torch.nn.functional.normalize
 
-    for entry in splat_data:
+    for ind, entry in enumerate(splat_data):
         image_ind = int(entry["img_name"])
 
         global_orient = global_orient_full[image_ind:image_ind+1]
@@ -148,15 +154,15 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
         hand_xyz, hand_rots, hand_scaling = gaussians.get_xyz_from_verts(vertices, activate=False)
         
-        merged_gaussians, merged_view_R, one_hot_labels = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
+        merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
                                                           view_R_hand, view_R_obj, view_R_scene,
-                                                          hand_xyz, hand_rots, hand_scaling)
+                                                          hand_xyz, hand_rots, hand_scaling, include_scene=False)
         # merged_gaussians, merged_view_R, one_hot_labels = debug_hand_gauss(gaussians, view_R_hand, 
         #                                                    hand_xyz, hand_rots, hand_scaling)
         # merged_gaussians, merged_view_R = scene_gaussians_trans, view_R_scene
         # merged_gaussians, merged_view_R, one_hot_labels = obj_gaussians_trans, view_R_obj, None
 
-        splat_cam_data = splat_data[image_ind]
+        splat_cam_data = splat_data[ind]
         R_inv = np.array(splat_cam_data['rotation'])
         t_inv = np.array(splat_cam_data['position'])
 
@@ -189,6 +195,10 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
         bg_color = [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+
+        hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
+        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
+        one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
 
         res_pgk = my_render(merged_gaussians, pipeline, background, intrinsics, dims, R.T, t,
                             vertices=None, view_R=merged_view_R, one_hot_labels=one_hot_labels)
@@ -253,14 +263,18 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         orig_im = cv2.imread(orig_im_path)
         
         comb_im = np.hstack((orig_im, image, mesh_im))
-        # comb_im = np.hstack((orig_im, scene_label_res, mesh_im))
+        #comb_im = np.hstack((orig_im, hand_label_res, mesh_im))
 
         im_path = os.path.join(output_dir, entry["img_name"] + '.png')
         # torchvision.utils.save_image(res_pgk['render'], im_path)
         cv2.imwrite(im_path, comb_im)
 
-        # ply_path = os.path.join(output_dir, 'merged.ply')
-        # merged_gaussians.save_ply(ply_path)
+        if ind == 0:
+            merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
+                                                          view_R_hand, view_R_obj, view_R_scene,
+                                                          hand_xyz, hand_rots, hand_scaling, include_scene=False)
+            ply_path = os.path.join(output_dir, 'merged.ply')
+            merged_gaussians.save_ply(ply_path)
 
 EXP_NAME = 'comb_colmap'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'

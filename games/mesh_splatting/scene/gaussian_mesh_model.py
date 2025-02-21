@@ -49,13 +49,13 @@ class GaussianMeshModel(GaussianModel):
         self.triangles = None
         self.eps_s0 = 1e-8
 
-        self.harmonic_mlp = nn.Sequential(
-            nn.Linear(19, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 45)
-        ).cuda()
+        # self.harmonic_mlp = nn.Sequential(
+        #     nn.Linear(19, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 128),
+        #     nn.ReLU(),
+        #     nn.Linear(128, 45)
+        # ).cuda()
 
     @property
     def get_xyz(self):
@@ -306,10 +306,10 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"},
 
             {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
-            {'params': [self.transl], 'lr': 1e-3, "name": "transl"},
-            {'params': [self.hand_pose], 'lr': 1e-3, "name": "hand_pose"},
-            {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
-            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
+            {'params': [self.transl], 'lr': 1e-5, "name": "transl"},
+            {'params': [self.hand_pose], 'lr': 1e-5, "name": "hand_pose"},
+            {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
+            {'params': [self.hand_scale], 'lr': 1e-2, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -345,8 +345,8 @@ class GaussianMeshModel(GaussianModel):
         path_model = path.replace('point_cloud.ply', 'model_params.pt')
         torch.save(save_dict, path_model)
 
-        path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
-        torch.save(self.harmonic_mlp.state_dict(), path_harmonic_mlp)
+        # path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
+        # torch.save(self.harmonic_mlp.state_dict(), path_harmonic_mlp)
 
     def load_ply(self, path):
         self._load_ply(path)
@@ -364,11 +364,16 @@ class GaussianMeshModel(GaussianModel):
         self._alpha = nn.Parameter(alpha)
         self._scale = nn.Parameter(scale)
 
-        path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
-        self.harmonic_mlp.load_state_dict(torch.load(path_harmonic_mlp))
+        #path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
+        #self.harmonic_mlp.load_state_dict(torch.load(path_harmonic_mlp))
 
         self.global_orient = nn.Parameter(params['global_orient'])
         self.transl = nn.Parameter(params['transl'])
         self.hand_pose = nn.Parameter(params['hand_pose'])
         self.betas = nn.Parameter(params['betas'])
         self.hand_scale = nn.Parameter(params['hand_scale'])
+
+    def reset_opacity(self):
+        opacities_new = inverse_sigmoid(torch.max(self.get_opacity, torch.ones_like(self.get_opacity)*0.05))
+        optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
+        self._opacity = optimizable_tensors["opacity"]

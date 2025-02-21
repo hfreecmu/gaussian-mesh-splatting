@@ -77,6 +77,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
     
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
+        if not (idx % 20 == 0 or idx == len(cam_extrinsics) - 1):
+            continue
+
         sys.stdout.write('\r')
         # the exact output you're looking for:
         sys.stdout.write("Reading camera {}/{}".format(idx+1, len(cam_extrinsics)))
@@ -125,7 +128,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
         # image = Image.fromarray(image)
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, 
-                              cx=cy, cy=cy,
+                              cx=cx, cy=cy,
                               image=image,
                               image_path=image_path, image_name=image_name, width=width, height=height,
                               hand_mask=hand_mask,

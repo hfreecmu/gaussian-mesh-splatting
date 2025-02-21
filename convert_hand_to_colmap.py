@@ -109,7 +109,7 @@ def run(data_dir, scene_dir, output_dir):
     col_obj_splat_path = os.path.join(output_dir, 'obj_splat.ply')
     shutil.copyfile(obj_splat_path, col_obj_splat_path)
 
-    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho.npy')
+    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_fit_opt.npy')
     ho_data = read_np_data(ho_path)
     scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
     scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan

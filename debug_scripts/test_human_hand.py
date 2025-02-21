@@ -7,7 +7,7 @@ import torchvision
 import pyrender
 
 from vine_prune.utils import read_json, read_np_data
-from vine_prune.utils.mano import get_mano, get_faces
+from vine_prune.utils.mano import get_mano, get_faces, scale_mano
 
 import sys
 sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
@@ -54,6 +54,7 @@ def run(splat_path, splat_json_path):
     transl_full = gaussians.transl
     hand_pose_full = gaussians.hand_pose
     betas_full = gaussians.betas
+    hand_scale = gaussians.hand_scale
 
     splat_data = read_json(splat_json_path)
 
@@ -73,9 +74,12 @@ def run(splat_path, splat_json_path):
         mano_out = mano(global_orient=global_orient,
                             hand_pose=hand_pose,
                             betas=betas,
-                            transl=transl)
+                            )
         
-        vertices = mano_out.vertices[0]
+        scale_mano(mano_out, mano, betas, hand_scale)
+        
+        vertices = mano_out.vertices + transl[:, None]
+        vertices = vertices[0]
 
         
         splat_cam_data = splat_data[image_ind]
@@ -181,7 +185,7 @@ def run(splat_path, splat_json_path):
 
 
 
-SPLAT_PATH = 'output/comb_colmap/point_cloud/iteration_7000/point_cloud.ply'
-SPLAT_JSON_PATH = '/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/comb_colmap/cameras.json'
+SPLAT_PATH = 'output/comb_colmap_single/point_cloud/iteration_10000/point_cloud.ply'
+SPLAT_JSON_PATH = 'output/comb_colmap_single/cameras.json'
 with torch.no_grad():
     run(SPLAT_PATH, SPLAT_JSON_PATH)

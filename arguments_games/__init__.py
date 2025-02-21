@@ -32,6 +32,8 @@ class OptimizationParamsMesh(ParamGroup):
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 30_000
+        
+        self.opacity_reset_interval = 500
 
         super().__init__(parser, "Optimization Parameters")
 
