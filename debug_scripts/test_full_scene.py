@@ -196,10 +196,9 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         bg_color = [0, 0, 0]
         background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
 
-        hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
-        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
+        hand_one_hot_pad = torch.stack((torch.sigmoid(hand_one_hot), torch.zeros_like(hand_one_hot)), dim=-1)
+        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), torch.sigmoid(obj_one_hot)), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
-        one_hot_labels = torch.sigmoid(one_hot_labels)
 
         res_pgk = my_render(merged_gaussians, pipeline, background, intrinsics, dims, R.T, t,
                             vertices=None, view_R=merged_view_R, one_hot_labels=one_hot_labels)
@@ -270,11 +269,22 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         # torchvision.utils.save_image(res_pgk['render'], im_path)
         cv2.imwrite(im_path, comb_im)
 
-        if ind == 0:
+        if True or ind == 0:
+            obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
+                                              None, harmonic=True, should_copy=False)
+            scene_gaussians_trans = trans_gaussians(scene_gaussians, scene_rot_frame, scene_trans_frame, 
+                                              None, harmonic=True, should_copy=False)
+
+            view_R_obj = torch.zeros_like(view_R_obj)
+            view_R_obj[:] = torch.eye(3)
+
+            view_R_scene = torch.zeros_like(view_R_scene)
+            view_R_scene[:] = torch.eye(3)
+
             merged_gaussians, merged_view_R = merge_gaussians(gaussians, obj_gaussians_trans, scene_gaussians_trans,
                                                           view_R_hand, view_R_obj, view_R_scene,
                                                           hand_xyz, hand_rots, hand_scaling, include_scene=False)
-            ply_path = os.path.join(output_dir, 'merged.ply')
+            ply_path = os.path.join(output_dir, f'merged_{entry["img_name"]}.ply')
             merged_gaussians.save_ply(ply_path)
 
 EXP_NAME = 'comb_colmap'

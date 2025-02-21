@@ -135,7 +135,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
                               object_mask=obj_mask)
         cam_infos.append(cam_info)
 
-        break
+        #break
         
     sys.stdout.write('\n')
     return cam_infos

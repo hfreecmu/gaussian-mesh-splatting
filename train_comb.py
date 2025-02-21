@@ -178,7 +178,7 @@ def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
     return merged_gaussians, merged_view_R#, one_hot_labels
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, train_scene=False, use_bg_color=True):
+             debug_from, save_xyz, train_scene=False, use_bg_color=False):
     
     ### pyrender stuff
     ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
@@ -391,10 +391,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
                                                                           hand_xyz, hand_rots, hand_scaling,
                                                                           include_scene=False)
         
-        hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
-        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
+        hand_one_hot_pad = torch.stack((torch.sigmoid(hand_one_hot), torch.zeros_like(hand_one_hot)), dim=-1)
+        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), torch.sigmoid(obj_one_hot)), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
-        one_hot_labels = torch.sigmoid(one_hot_labels)
         
         # one_hot_labels = torch.concat((gauss_eid, obj_eid))
         
@@ -522,7 +521,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         py_scene.remove_node(mesh_node)
         ###
 
-        loss = loss + 0.1*hand_mask_loss + 0.1*obj_mask_loss + 0.5*mano_mask_loss #+ color_loss
+        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss #+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
