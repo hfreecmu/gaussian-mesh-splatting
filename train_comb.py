@@ -546,9 +546,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         contact_loss = contact_loss.mean()
 
         sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
-        sdf_loss = torch.clamp(-sdf, min=0.00, max=0.005).mean()
+        sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
 
-        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 1.0*contact_loss + 1.0*sdf_loss#+ color_loss
+        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss + 1.0*sdf_loss#+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
