@@ -53,17 +53,24 @@ from pytorch3d.ops import knn_points
 import kaolin
 from vine_prune.alignment.fitting.utils import create_silhouette_renderer, create_meshes
 
-def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
-    distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
+# def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
+#     # distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
 
-    # inside or not
-    sign = kaolin.ops.mesh.check_sign(mesh_v_cano.detach(), mesh_f_cano.detach(), x_cano.detach()).float()
+#     ###
+#     mesh_v_faces = mesh_v_cano[:, mesh_f_cano] 
+#     distance, _, _ = kaolin.metrics.trianglemesh.point_to_mesh_distance(
+#         x_cano.contiguous(), mesh_v_faces
+#     )
+#     ###
 
-    # inside: 1 -> 1 - 2 = -1, negative
-    # outside: 0 -> 1 - 0 = 1, positive
-    sign = 1 - 2 * sign
-    signed_distance = sign * distance  # SDF of points to mesh
-    return signed_distance
+#     # inside or not
+#     sign = kaolin.ops.mesh.check_sign(mesh_v_cano.detach(), mesh_f_cano.detach(), x_cano.detach()).float()
+
+#     # inside: 1 -> 1 - 2 = -1, negative
+#     # outside: 0 -> 1 - 0 = 1, positive
+#     sign = 1 - 2 * sign
+#     signed_distance = sign * distance  # SDF of points to mesh
+#     return signed_distance
 
 def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     """Returns a transformation from OpenGL to OpenCV camera frame.
@@ -195,7 +202,7 @@ def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
     return merged_gaussians, merged_view_R#, one_hot_labels
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, train_scene=False, use_bg_color=False):
+             debug_from, save_xyz, train_scene=False, use_bg_color=True):
     
     ### pyrender stuff
     # ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
@@ -290,7 +297,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     #opacity_loss = torch.nn.BCEWithLogitsLoss()
 
     if use_bg_color:
-        l_params.append({'params': [scene_brightness], 'lr': 1e-3, "name": "scene_brightness"})
+        l_params.append({'params': [scene_brightness], 'lr': 1e-5, "name": "scene_brightness"})
 
     # if train_scene:
     #     l_params.append({'params': [scene_rot], 'lr': 1e-3, "name": "scene_rot"})
@@ -553,7 +560,10 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # should mano mask loss be back prop?
         # mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + l1_loss(mano_mask, gt_hand_mask)
-        mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + l1_loss(mano_mask, gt_hand_mask)
+        # mano_mask_net = torch.where(net_mask > 0, mano_mask, torch.zeros_like(mano_mask))
+        # gt_hand_mask_net = torch.where(net_mask > 0, gt_hand_mask, torch.zeros_like(gt_hand_mask))
+        # mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + 0.25*l1_loss(mano_mask_net, gt_hand_mask_net)
+        mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + 0.5*l1_loss(mano_mask, gt_hand_mask)
 
         # py_scene.remove_node(camera_node)
         # py_scene.remove_node(light_node)
@@ -566,10 +576,11 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0), K=1, return_nn=False)[0]
         contact_loss = contact_loss.mean()
 
-        sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
-        sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
+        #sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
+        # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
+        #sdf_loss = torch.clamp(-sdf, min=-0.005, max=0.1).mean()
 
-        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss + 0.5*sdf_loss#+ color_loss
+        loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
@@ -759,9 +770,9 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     # parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
     # parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
                                                                            100_000, 120_000, 140_000, 160_000, 180_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
                                                                            100_000, 120_000, 140_000, 160_000, 180_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])

@@ -267,7 +267,7 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
         orig_hand_mask = np.stack([orig_hand_mask]*3, axis=-1)
         
         comb_im = np.hstack((orig_im, image, mesh_im))
-        comb_hand_mask_im = np.hstack((orig_hand_mask, hand_label_res, mesh_im))
+        comb_hand_mask_im = np.hstack((orig_hand_mask, hand_label_res, cv2.addWeighted(image, 0.5, mesh_im, 0.5, 0) ))
 
         im_path = os.path.join(output_dir, entry["img_name"] + '.png')
         # torchvision.utils.save_image(res_pgk['render'], im_path)
