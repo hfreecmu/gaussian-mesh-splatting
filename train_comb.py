@@ -51,6 +51,7 @@ from utils.graphics_utils import fov2focal, c2c_orig
 from scipy.spatial import cKDTree
 from pytorch3d.ops import knn_points
 import kaolin
+from vine_prune.alignment.fitting.utils import create_silhouette_renderer, create_meshes
 
 def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
     distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
@@ -123,6 +124,7 @@ def trans_gaussians(splatt_gaussians, rot, trans, scale, is_rot_angle=False,
 def sel_gaussians(gaussians, view_R, one_hot_labels, indices):
     new_gaussians = GaussianModel(gaussians.max_sh_degree)
     new_gaussians.active_sh_degree = gaussians.max_sh_degree
+    # new_gaussians.active_sh_degree = gaussians.active_sh_degree
 
     new_gaussians._xyz = gaussians._xyz[indices]
     new_gaussians._features_dc = gaussians._features_dc[indices]
@@ -151,6 +153,7 @@ def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
     merged_gaussians = GaussianModel(hand_gaussians.max_sh_degree)
     # max or active?
     merged_gaussians.active_sh_degree = hand_gaussians.max_sh_degree
+    # merged_gaussians.active_sh_degree = hand_gaussians.active_sh_degree
     
     if include_scene:
         merged_gaussians._xyz = torch.concat((hand_xyz, obj_gaussians._xyz, scene_gaussians._xyz), dim=0)
@@ -195,8 +198,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
              debug_from, save_xyz, train_scene=False, use_bg_color=False):
     
     ### pyrender stuff
-    ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
-    py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
+    # ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
+    # py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
     renderer = None
     ###
     
@@ -223,6 +226,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     # obj_gaussians.spatial_lr_scale = 5.0
 
     # disable_grad(scene_gaussians, full=True)
+    # WARNING 
+    # if not disable grad, clone in trans_gaussians might need to retain grad
+    # see https://discuss.pytorch.org/t/how-does-clone-interact-with-backpropagation/8247/5
     disable_grad(obj_gaussians, full=True)
 
     mano_data = read_np_data(mano_data_path)
@@ -311,7 +317,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    BATCH_SIZE = min(200, len(scene.getTrainCameras()))
+    BATCH_SIZE = min(10, len(scene.getTrainCameras()))
     losses = []
     for iteration in range(first_iter, opt.iterations + 1):
         os.makedirs(f"{scene.model_path}/xyz", exist_ok=True)
@@ -489,54 +495,69 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         #op_loss = 0.0
 
         ### mano mask loss
-        if renderer is None:
-            renderer = pyrender.OffscreenRenderer(gt_image.shape[2], gt_image.shape[1])
-
-        trimesh_model = trimesh.Trimesh(vertices.detach().cpu().numpy(), hand_faces, process=False)
-        mesh = pyrender.Mesh.from_trimesh(trimesh_model)
-        mesh_node = py_scene.add(mesh)
+        # trimesh_model = trimesh.Trimesh(vertices.detach().cpu().numpy(), hand_faces, process=False)
+        # mesh = pyrender.Mesh.from_trimesh(trimesh_model)
+        # mesh_node = py_scene.add(mesh)
 
         fx = fov2focal(viewpoint_cam.FoVx, gt_image.shape[2])
         fy = fov2focal(viewpoint_cam.FoVy, gt_image.shape[1])
         cx = c2c_orig(viewpoint_cam.cx, gt_image.shape[2])
         cy = c2c_orig(viewpoint_cam.cy, gt_image.shape[1])
-        camera = pyrender.IntrinsicsCamera(fx=fx,
-                                           fy=fy,
-                                           cx=cx,
-                                           cy=cy,
-                                           znear=0.1,
-                                           zfar=3000.0)
+        # camera = pyrender.IntrinsicsCamera(fx=fx,
+        #                                    fy=fy,
+        #                                    cx=cx,
+        #                                    cy=cy,
+        #                                    znear=0.1,
+        #                                    zfar=3000.0)
+        
+        if renderer is None:
+            # renderer = pyrender.OffscreenRenderer(gt_image.shape[2], gt_image.shape[1])
+            sil_size = (gt_image.shape[1], gt_image.shape[2])
+            K = np.array([[fx, 0, cx],
+                          [0, fy, cy],
+                          [0, 0, 1]])
+            K = torch.from_numpy(K).float()
+            camera_Ks = K.unsqueeze(0)
+            renderer, rend_cams = create_silhouette_renderer(camera_Ks, 'cuda', sil_size,
+                                                             faces_per_pixel=2)# 5 # 50
 
-        M = np.eye(4)
-        M[0:3, 0:3] = viewpoint_cam.R.T
-        M[0:3, 3] = viewpoint_cam.T
-        M_inv = np.linalg.inv(M)
-        trans_c2w = M_inv @ get_opengl_to_opencv_camera_trans()
-        camera_node = pyrender.Node(camera=camera, matrix=trans_c2w)
-        py_scene.add_node(camera_node)
+        # M = np.eye(4)
+        # M[0:3, 0:3] = viewpoint_cam.R.T
+        # M[0:3, 3] = viewpoint_cam.T
+        # M_inv = np.linalg.inv(M)
+        # trans_c2w = M_inv @ get_opengl_to_opencv_camera_trans()
+        
+        # camera_node = pyrender.Node(camera=camera, matrix=trans_c2w)
+        # py_scene.add_node(camera_node)
 
-        light = pyrender.SpotLight(
-                color=np.ones(3),
-                intensity=2.4,
-                innerConeAngle=np.pi / 16.0,
-                outerConeAngle=np.pi / 6.0,
-            )
-        light_node = pyrender.Node(light=light, matrix=trans_c2w)
-        py_scene.add_node(light_node)
+        # light = pyrender.SpotLight(
+        #         color=np.ones(3),
+        #         intensity=2.4,
+        #         innerConeAngle=np.pi / 16.0,
+        #         outerConeAngle=np.pi / 6.0,
+        #     )
+        # light_node = pyrender.Node(light=light, matrix=trans_c2w)
+        # py_scene.add_node(light_node)
 
-        render_flags = pyrender.constants.RenderFlags.NONE
-        _, depth = renderer.render(py_scene, flags=render_flags)
+        # render_flags = pyrender.constants.RenderFlags.NONE
+        # _, depth = renderer.render(py_scene, flags=render_flags)
 
-        mano_mask = np.zeros((depth.shape[0], depth.shape[1]), dtype=float)
-        mano_mask[depth > 0] = 1.0
-        mano_mask = torch.from_numpy(mano_mask).float().cuda().unsqueeze(0)
+        # mano_mask = np.zeros((depth.shape[0], depth.shape[1]), dtype=float)
+        # mano_mask[depth > 0] = 1.0
+        # mano_mask = torch.from_numpy(mano_mask).float().cuda().unsqueeze(0)
+
+        meshes = create_meshes(vertices.unsqueeze(0), hand_faces_torch, 'cuda')
+        mano_mask = renderer(meshes_world=meshes, cameras=rend_cams)[..., 3]
+
+        mano_gt_mask = torch.where(mano_mask > 0.5, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
 
         # should mano mask loss be back prop?
-        mano_mask_loss = l1_loss(sel_hand_label_res, mano_mask)
+        # mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + l1_loss(mano_mask, gt_hand_mask)
+        mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + l1_loss(mano_mask, gt_hand_mask)
 
-        py_scene.remove_node(camera_node)
-        py_scene.remove_node(light_node)
-        py_scene.remove_node(mesh_node)
+        # py_scene.remove_node(camera_node)
+        # py_scene.remove_node(light_node)
+        # py_scene.remove_node(mesh_node)
         ###
 
         v3d_tips = vertices[contact_idx]
@@ -548,11 +569,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
         sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
 
-        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss + 1.0*sdf_loss#+ color_loss
+        loss = loss + 0.5*hand_mask_loss + 0.5*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss + 0.5*sdf_loss#+ color_loss
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
-            losses = torch.stack(losses).sum()
+            # losses = torch.stack(losses).sum()
+            losses = torch.stack(losses).mean()
             losses.backward()
 
             # Optimizer step
@@ -737,8 +759,10 @@ if __name__ == "__main__":
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     # parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
     # parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
+                                                                           100_000, 120_000, 140_000, 160_000, 180_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
+                                                                           100_000, 120_000, 140_000, 160_000, 180_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default=None)
@@ -774,4 +798,4 @@ if __name__ == "__main__":
     # All done
     print("\nTraining complete.")
 
-# python3 train.py -s data/hand_colmap/ -m output/hand_colmap --gs_type gs_mesh --meshes 'mesh' --num_splats 5 --iterations 30000 --sh_degree 3 --resolution 2
+# python3 train_comb.py -s data/0_pruner_rotate/ -m output/0_pruner_rotate --gs_type gs_mesh --meshes 'mesh' --num_splats 3 --iterations 7000 --sh_degree 3 --resolution 1

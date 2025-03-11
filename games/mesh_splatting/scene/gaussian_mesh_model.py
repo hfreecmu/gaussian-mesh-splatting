@@ -308,7 +308,8 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
             {'params': [self.transl], 'lr': 1e-5, "name": "transl"},
             {'params': [self.hand_pose], 'lr': 1e-5, "name": "hand_pose"},
-            {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
+            # {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
+            {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
             {'params': [self.hand_scale], 'lr': 1e-2, "name": "hand_scale"}
         ]
 

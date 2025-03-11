@@ -9,7 +9,7 @@ import pytorch3d.transforms
 
 from vine_prune.utils import read_json, read_np_data
 from vine_prune.utils.mano import get_mano, scale_mano, get_faces
-from vine_prune.utils.general_utils import splat_to_image_color
+from vine_prune.utils.general_utils import splat_to_image_color, read_mask
 
 import sys
 sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
@@ -63,7 +63,7 @@ def debug_hand_gauss(hand_gaussians,
 
     return merged_gaussians, merged_view_R, None
 
-def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
+def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
     splat_path, splat_dir = get_splat_path(splat_res_dir, target_itr=None)
 
     gaussians = GaussianMeshModel(3)
@@ -261,13 +261,20 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
         
         orig_im_path = os.path.join(image_dir, entry["img_name"] + '.jpg')
         orig_im = cv2.imread(orig_im_path)
+
+        orig_hand_mask_path = os.path.join(hand_mask_dir, entry["img_name"] + '.png')
+        orig_hand_mask = read_mask(orig_hand_mask_path)
+        orig_hand_mask = np.stack([orig_hand_mask]*3, axis=-1)
         
         comb_im = np.hstack((orig_im, image, mesh_im))
-        #comb_im = np.hstack((orig_im, hand_label_res, mesh_im))
+        comb_hand_mask_im = np.hstack((orig_hand_mask, hand_label_res, mesh_im))
 
         im_path = os.path.join(output_dir, entry["img_name"] + '.png')
         # torchvision.utils.save_image(res_pgk['render'], im_path)
         cv2.imwrite(im_path, comb_im)
+
+        im_hand_path = os.path.join(output_dir, entry["img_name"] + '_hand.png')
+        cv2.imwrite(im_hand_path, comb_hand_mask_im)
 
         if True or ind == 0:
             obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
@@ -289,8 +296,10 @@ def run(splat_res_dir, splat_data_dir, image_dir, output_dir):
 
 EXP_NAME = '0_pruner_rotate'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
+# SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
 SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/data/{EXP_NAME}'
-IMAGE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate/undistorted'
+IMAGE_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/undistorted'
+HAND_MASK_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/mask_hand'
 OUTPUT_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand/'
 with torch.no_grad():
-    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, OUTPUT_DIR)
+    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR)
