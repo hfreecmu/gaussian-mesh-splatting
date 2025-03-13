@@ -77,7 +77,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
     
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
-        if not (idx % 20 == 0 or idx == len(cam_extrinsics) - 1):
+        # if not (idx % 20 == 0 or idx == len(cam_extrinsics) - 1):
+        #     continue
+        if not idx in [0, 3, 6, 9]:
             continue
 
         sys.stdout.write('\r')
@@ -135,7 +137,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
                               object_mask=obj_mask)
         cam_infos.append(cam_info)
 
-        break
+        # break
         
     sys.stdout.write('\n')
     return cam_infos

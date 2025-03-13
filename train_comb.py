@@ -53,24 +53,24 @@ from pytorch3d.ops import knn_points
 import kaolin
 from vine_prune.alignment.fitting.utils import create_silhouette_renderer, create_meshes
 
-# def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
-#     # distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
+def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
+    # distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
 
-#     ###
-#     mesh_v_faces = mesh_v_cano[:, mesh_f_cano] 
-#     distance, _, _ = kaolin.metrics.trianglemesh.point_to_mesh_distance(
-#         x_cano.contiguous(), mesh_v_faces
-#     )
-#     ###
+    ###
+    mesh_v_faces = mesh_v_cano[:, mesh_f_cano] 
+    distance, _, _ = kaolin.metrics.trianglemesh.point_to_mesh_distance(
+        x_cano.contiguous(), mesh_v_faces
+    )
+    ###
 
-#     # inside or not
-#     sign = kaolin.ops.mesh.check_sign(mesh_v_cano.detach(), mesh_f_cano.detach(), x_cano.detach()).float()
+    # inside or not
+    sign = kaolin.ops.mesh.check_sign(mesh_v_cano.detach(), mesh_f_cano.detach(), x_cano.detach()).float()
 
-#     # inside: 1 -> 1 - 2 = -1, negative
-#     # outside: 0 -> 1 - 0 = 1, positive
-#     sign = 1 - 2 * sign
-#     signed_distance = sign * distance  # SDF of points to mesh
-#     return signed_distance
+    # inside: 1 -> 1 - 2 = -1, negative
+    # outside: 0 -> 1 - 0 = 1, positive
+    sign = 1 - 2 * sign
+    signed_distance = sign * distance  # SDF of points to mesh
+    return signed_distance
 
 def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     """Returns a transformation from OpenGL to OpenCV camera frame.
@@ -202,7 +202,7 @@ def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
     return merged_gaussians, merged_view_R#, one_hot_labels
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, train_scene=False, use_bg_color=True):
+             debug_from, save_xyz, train_scene=False, use_bg_color=False):
     
     ### pyrender stuff
     # ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
@@ -286,15 +286,15 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     rotation_activation = nn.functional.normalize
     l_params = [
         {'params': [obj_rot], 'lr': 1e-4, "name": "obj_rot"},
-        {'params': [obj_trans], 'lr': 1e-5, "name": "obj_trans"},
+        {'params': [obj_trans], 'lr': 1e-4, "name": "obj_trans"},
         # {'params': [obj_eid], 'lr': 1e-5, "name": "obj_eid"},
         # {'params': [gauss_eid], 'lr': 1e-5, "name": "gauss_eid"},
         # {'params': seg_mlp.parameters(), 'lr': 1e-4, "name": "seg_mlp"}
-        {'params': [obj_one_hot], 'lr': 1e-5, "name": "obj_one_hot"},
-        {'params': [hand_one_hot], 'lr': 1e-5, "name": "gauss_one_hot"},
+        {'params': [obj_one_hot], 'lr': 1e-4, "name": "obj_one_hot"},
+        {'params': [hand_one_hot], 'lr': 1e-4, "name": "gauss_one_hot"},
     ]
 
-    #opacity_loss = torch.nn.BCEWithLogitsLoss()
+    # opacity_loss = torch.nn.BCEWithLogitsLoss()
 
     if use_bg_color:
         l_params.append({'params': [scene_brightness], 'lr': 1e-5, "name": "scene_brightness"})
@@ -500,6 +500,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # op_loss = 0.1*opacity_loss(gaussians._opacity, torch.ones_like(gaussians._opacity))
         #op_loss = 0.0
+        # op_loss = 0.1*opacity_loss(gaussians._opacity, torch.ones_like(gaussians._opacity))
+        # op_loss = l1_loss(gaussians.get_opacity, torch.ones_like(gaussians.get_opacity))
 
         ### mano mask loss
         # trimesh_model = trimesh.Trimesh(vertices.detach().cpu().numpy(), hand_faces, process=False)
@@ -556,14 +558,13 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         meshes = create_meshes(vertices.unsqueeze(0), hand_faces_torch, 'cuda')
         mano_mask = renderer(meshes_world=meshes, cameras=rend_cams)[..., 3]
 
-        mano_gt_mask = torch.where(mano_mask > 0.5, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
+        # mano_gt_mask = torch.where(mano_mask > 0.5, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
+        mano_gt_mask = torch.where(mano_mask > 0.1, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
+        mano_mask_to_use = torch.where(gt_object_mask > 0.0, torch.zeros_like(mano_mask), mano_mask)
 
         # should mano mask loss be back prop?
-        # mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + l1_loss(mano_mask, gt_hand_mask)
-        # mano_mask_net = torch.where(net_mask > 0, mano_mask, torch.zeros_like(mano_mask))
-        # gt_hand_mask_net = torch.where(net_mask > 0, gt_hand_mask, torch.zeros_like(gt_hand_mask))
-        # mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + 0.25*l1_loss(mano_mask_net, gt_hand_mask_net)
-        mano_mask_loss = l1_loss(sel_hand_label_res, mano_gt_mask) + 0.5*l1_loss(mano_mask, gt_hand_mask)
+        sel_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
+        mano_mask_loss = l1_loss(mano_mask_to_use, gt_hand_mask)
 
         # py_scene.remove_node(camera_node)
         # py_scene.remove_node(light_node)
@@ -576,11 +577,15 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0), K=1, return_nn=False)[0]
         contact_loss = contact_loss.mean()
 
-        #sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
+        # sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
         # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
         #sdf_loss = torch.clamp(-sdf, min=-0.005, max=0.1).mean()
 
-        loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.5*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
+        loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.75*sel_loss + 1.15*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
+
+        # if iteration > 1000:
+        #     loss += 0.2*sdf_loss
+
         losses.append(loss)
 
         if len(losses) == BATCH_SIZE:
@@ -590,8 +595,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
             # Optimizer step
             if iteration < opt.iterations:
-                if iteration % opt.opacity_reset_interval == 0:
-                    gaussians.reset_opacity()
+                # if iteration % opt.opacity_reset_interval == 0:
+                #     gaussians.reset_opacity()
 
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none=True)
@@ -604,6 +609,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+
+                gaussians.clamp_opacity()
 
             losses = []
         

@@ -94,7 +94,9 @@ class GaussianMeshModel(GaussianModel):
         features[:, :3, 0] = fused_color
         features[:, 3:, 1:] = 0.0
 
-        opacities = inverse_sigmoid(0.1 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
+        # opacities = inverse_sigmoid(0.1 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
+        opacities = inverse_sigmoid(0.9 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
+        self.clamp_opacity_inv = opacities[0, 0]
 
         # self.vertices = nn.Parameter(
         #     self.point_cloud.vertices.clone().detach().requires_grad_(True).cuda().float()
@@ -178,10 +180,12 @@ class GaussianMeshModel(GaussianModel):
         )
         v0 = normals / (torch.linalg.vector_norm(normals, dim=-1, keepdim=True) + self.eps_s0)
         means = torch.mean(triangles, dim=1)
-        v1 = triangles[:, 1] - means
+        # v1 = triangles[:, 1] - means
+        v1 = triangles[:, 0] - means
         v1_norm = torch.linalg.vector_norm(v1, dim=-1, keepdim=True) + self.eps_s0
         v1 = v1 / v1_norm
-        v2_init = triangles[:, 2] - means
+        # v2_init = triangles[:, 2] - means
+        v2_init = triangles[:, 1] - means
         v2 = v2_init - proj(v2_init, v0) - proj(v2_init, v1)  # Gram-Schmidt
         v2 = v2 / (torch.linalg.vector_norm(v2, dim=-1, keepdim=True) + self.eps_s0)
 
@@ -190,8 +194,12 @@ class GaussianMeshModel(GaussianModel):
         s0 = self.eps_s0 * torch.ones_like(s1)
         scales = torch.concat((s0, s1, s2), dim=1).unsqueeze(dim=1)
         scales = scales.broadcast_to((*self.alpha.shape[:2], 3))
+
+        scales_to_use = self._scale * scales.flatten(start_dim=0, end_dim=1)
+        scales_to_use[:, 0] = self.eps_s0
+
         self._scaling = torch.log(
-            torch.nn.functional.relu(self._scale * scales.flatten(start_dim=0, end_dim=1)) + self.eps_s0
+            torch.nn.functional.relu(scales_to_use) + self.eps_s0
         )
         rotation = torch.stack((v0, v1, v2), dim=1).unsqueeze(dim=1)
         rotation = rotation.broadcast_to((*self.alpha.shape[:2], 3, 3)).flatten(start_dim=0, end_dim=1)
@@ -265,10 +273,14 @@ class GaussianMeshModel(GaussianModel):
         )
         v0 = normals / (torch.linalg.vector_norm(normals, dim=-1, keepdim=True) + self.eps_s0)
         means = torch.mean(triangles, dim=1)
-        v1 = triangles[:, 1] - means
+        #TODO WARNING I am not sure if this is the correct logic and I found a bug or other
+        # also same for above
+        # v1 = triangles[:, 1] - means
+        v1 = triangles[:, 0] - means
         v1_norm = torch.linalg.vector_norm(v1, dim=-1, keepdim=True) + self.eps_s0
         v1 = v1 / v1_norm
-        v2_init = triangles[:, 2] - means
+        # v2_init = triangles[:, 2] - means
+        v2_init = triangles[:, 1] - means
         v2 = v2_init - proj(v2_init, v0) - proj(v2_init, v1)  # Gram-Schmidt
         v2 = v2 / (torch.linalg.vector_norm(v2, dim=-1, keepdim=True) + self.eps_s0)
 
@@ -278,8 +290,11 @@ class GaussianMeshModel(GaussianModel):
         scales = torch.concat((s0, s1, s2), dim=1).unsqueeze(dim=1)
         scales = scales.broadcast_to((*self.alpha.shape[:2], 3))
         
+        scales_to_use = self._scale * scales.flatten(start_dim=0, end_dim=1)
+        scales_to_use[:, 0] = self.eps_s0
+
         scaling = torch.log(
-            torch.nn.functional.relu(self._scale * scales.flatten(start_dim=0, end_dim=1)) + self.eps_s0
+            torch.nn.functional.relu(scales_to_use) + self.eps_s0
         )
 
         rotation = torch.stack((v0, v1, v2), dim=1).unsqueeze(dim=1)
@@ -305,12 +320,12 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"},
 
-            {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
-            {'params': [self.transl], 'lr': 1e-5, "name": "transl"},
+            {'params': [self.global_orient], 'lr': 1e-4, "name": "global_orient"},
+            {'params': [self.transl], 'lr': 1e-4, "name": "transl"},
             {'params': [self.hand_pose], 'lr': 1e-5, "name": "hand_pose"},
             # {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
             {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
-            {'params': [self.hand_scale], 'lr': 1e-2, "name": "hand_scale"}
+            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -376,5 +391,10 @@ class GaussianMeshModel(GaussianModel):
 
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.max(self.get_opacity, torch.ones_like(self.get_opacity)*0.05))
+        optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
+        self._opacity = optimizable_tensors["opacity"]
+
+    def clamp_opacity(self):
+        opacities_new = torch.clamp(self._opacity, min=self.clamp_opacity_inv)
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]

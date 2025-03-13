@@ -294,6 +294,11 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
             ply_path = os.path.join(output_dir, f'merged_{entry["img_name"]}.ply')
             merged_gaussians.save_ply(ply_path)
 
+            hand_gaussians, _, _ = debug_hand_gauss(gaussians, view_R_hand, hand_xyz, hand_rots, hand_scaling)
+
+            hand_ply_path = os.path.join(output_dir, f'merged_{entry["img_name"]}_hand.ply')
+            hand_gaussians.save_ply(hand_ply_path)
+
 EXP_NAME = '0_pruner_rotate'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
