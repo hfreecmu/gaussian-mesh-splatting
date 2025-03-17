@@ -59,6 +59,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
            vertices = None,
            view_R = None,
            one_hot_labels=None,
+           color_offset=None,
            ):
     """
     Render the scene. 
@@ -172,6 +173,9 @@ def render(viewpoint_camera, pc : GaussianModel, pipe,
             shs = features
     else:
         colors_precomp = override_color
+
+    if colors_precomp is not None and color_offset is not None:
+        colors_precomp = colors_precomp + color_offset
 
     # # Rasterize visible Gaussians to image, obtain their radii (on screen). 
     # rendered_image, radii, depth_image = rasterizer(

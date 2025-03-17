@@ -202,7 +202,7 @@ def merge_gaussians(hand_gaussians, obj_gaussians, scene_gaussians,
     return merged_gaussians, merged_view_R#, one_hot_labels
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, train_scene=False, use_bg_color=False):
+             debug_from, save_xyz, train_scene=False, use_bg_color=True):
     
     ### pyrender stuff
     # ambient_light = np.array([0.02, 0.02, 0.02, 1.0])
@@ -267,10 +267,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     # gauss_eid = nn.Parameter(gauss_eid)
     # seg_mlp = nn.Linear(16, 3).cuda()
 
-    obj_one_hot = inverse_sigmoid(torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5)
+    # obj_one_hot = inverse_sigmoid(torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5)
+    obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5
     obj_one_hot = nn.Parameter(obj_one_hot)
 
-    hand_one_hot = inverse_sigmoid(torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5)
+    # hand_one_hot = inverse_sigmoid(torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5)
+    hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5
     hand_one_hot = nn.Parameter(hand_one_hot)
 
     cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d']).cuda()
@@ -282,6 +284,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     if use_bg_color:
         scene_brightness = torch.zeros(num_frames, 3).float().cuda()
         scene_brightness = nn.Parameter(scene_brightness)
+
+        scene_bright_map = {}
+        scene_bright_count = 0
 
     rotation_activation = nn.functional.normalize
     l_params = [
@@ -297,7 +302,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     # opacity_loss = torch.nn.BCEWithLogitsLoss()
 
     if use_bg_color:
-        l_params.append({'params': [scene_brightness], 'lr': 1e-5, "name": "scene_brightness"})
+        l_params.append({'params': [scene_brightness], 'lr': 1e-4, "name": "scene_brightness"})
 
     # if train_scene:
     #     l_params.append({'params': [scene_rot], 'lr': 1e-3, "name": "scene_rot"})
@@ -324,7 +329,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    BATCH_SIZE = min(10, len(scene.getTrainCameras()))
+    BATCH_SIZE = min(50, len(scene.getTrainCameras()))
     losses = []
     for iteration in range(first_iter, opt.iterations + 1):
         os.makedirs(f"{scene.model_path}/xyz", exist_ok=True)
@@ -422,22 +427,36 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
                                                                           hand_xyz, hand_rots, hand_scaling,
                                                                           include_scene=False)
         
-        hand_one_hot_pad = torch.stack((torch.sigmoid(hand_one_hot), torch.zeros_like(hand_one_hot)), dim=-1)
-        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), torch.sigmoid(obj_one_hot)), dim=-1)
+        # hand_one_hot_pad = torch.stack((torch.sigmoid(hand_one_hot), torch.zeros_like(hand_one_hot)), dim=-1)
+        # obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), torch.sigmoid(obj_one_hot)), dim=-1)
+        hand_one_hot_pad = torch.stack((hand_one_hot, torch.zeros_like(hand_one_hot)), dim=-1)
+        obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
         
         # one_hot_labels = torch.concat((gauss_eid, obj_eid))
+
+        if use_bg_color:
+            if image_ind not in scene_bright_map:
+                scene_bright_map[image_ind] = scene_bright_count
+                scene_bright_count += 1
+
+            frame_scene_brightness = scene_brightness[scene_bright_map[image_ind]]
+            #image = image + frame_scene_brightness[:, None, None]
+        else:
+            frame_scene_brightness = None
         
         render_pkg = render(viewpoint_cam, merged_gaussians, pipe, bg, 
                             vertices=None, view_R=merged_view_R,
-                            one_hot_labels=one_hot_labels)
+                            one_hot_labels=one_hot_labels,
+                            color_offset=frame_scene_brightness)
         
         sel_hand_gaussian_model, sel_view_R_hand, sel_one_hot_labels_hand = sel_gaussians(merged_gaussians, merged_view_R, 
                                                                                           one_hot_labels[:, 0:1], torch.arange(hand_xyz.shape[0]))
 
         hand_render_pkg = render(viewpoint_cam, sel_hand_gaussian_model, pipe, bg, 
                             vertices=None, view_R=sel_view_R_hand,
-                            one_hot_labels=sel_one_hot_labels_hand)
+                            one_hot_labels=sel_one_hot_labels_hand,
+                            )
         
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], \
         render_pkg["visibility_filter"], render_pkg["radii"]
@@ -449,9 +468,6 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         # color_diffs = hand_colors[:, None] - hand_colors[indices]
         # color_loss = 0.1*(color_diffs**2).mean()
 
-        if use_bg_color:
-            frame_scene_brightness = scene_brightness[image_ind]
-            image = image + frame_scene_brightness[:, None, None]
 
         # label_res = render_pkg['extra'].permute(1,2,0)
         label_res = render_pkg['extra']
@@ -564,7 +580,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # should mano mask loss be back prop?
         sel_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
-        mano_mask_loss = l1_loss(mano_mask_to_use, gt_hand_mask)
+        # mano_mask_loss = l1_loss(mano_mask_to_use, gt_hand_mask)
+        mano_mask_loss = 0.0
 
         # py_scene.remove_node(camera_node)
         # py_scene.remove_node(light_node)
@@ -581,7 +598,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
         #sdf_loss = torch.clamp(-sdf, min=-0.005, max=0.1).mean()
 
-        loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.75*sel_loss + 1.15*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
+        # loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.75*sel_loss + 1.15*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
+        rgb_coeff = 1.0
+        mask_coeff = 1.1 *  torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
+        sel_coeff = 1.1 *  torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
+
+        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + sel_coeff*sel_loss + 1.15*mano_mask_loss + 0.2*contact_loss #+ 0.5*sdf_loss#+ color_loss
 
         # if iteration > 1000:
         #     loss += 0.2*sdf_loss

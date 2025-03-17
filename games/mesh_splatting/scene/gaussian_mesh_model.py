@@ -180,12 +180,12 @@ class GaussianMeshModel(GaussianModel):
         )
         v0 = normals / (torch.linalg.vector_norm(normals, dim=-1, keepdim=True) + self.eps_s0)
         means = torch.mean(triangles, dim=1)
-        # v1 = triangles[:, 1] - means
-        v1 = triangles[:, 0] - means
+        v1 = triangles[:, 1] - means
+        # v1 = triangles[:, 0] - means
         v1_norm = torch.linalg.vector_norm(v1, dim=-1, keepdim=True) + self.eps_s0
         v1 = v1 / v1_norm
-        # v2_init = triangles[:, 2] - means
-        v2_init = triangles[:, 1] - means
+        v2_init = triangles[:, 2] - means
+        # v2_init = triangles[:, 1] - means
         v2 = v2_init - proj(v2_init, v0) - proj(v2_init, v1)  # Gram-Schmidt
         v2 = v2 / (torch.linalg.vector_norm(v2, dim=-1, keepdim=True) + self.eps_s0)
 
@@ -275,12 +275,12 @@ class GaussianMeshModel(GaussianModel):
         means = torch.mean(triangles, dim=1)
         #TODO WARNING I am not sure if this is the correct logic and I found a bug or other
         # also same for above
-        # v1 = triangles[:, 1] - means
-        v1 = triangles[:, 0] - means
+        v1 = triangles[:, 1] - means
+        # v1 = triangles[:, 0] - means
         v1_norm = torch.linalg.vector_norm(v1, dim=-1, keepdim=True) + self.eps_s0
         v1 = v1 / v1_norm
-        # v2_init = triangles[:, 2] - means
-        v2_init = triangles[:, 1] - means
+        v2_init = triangles[:, 2] - means
+        # v2_init = triangles[:, 1] - means
         v2 = v2_init - proj(v2_init, v0) - proj(v2_init, v1)  # Gram-Schmidt
         v2 = v2 / (torch.linalg.vector_norm(v2, dim=-1, keepdim=True) + self.eps_s0)
 
@@ -324,8 +324,8 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self.transl], 'lr': 1e-4, "name": "transl"},
             {'params': [self.hand_pose], 'lr': 1e-5, "name": "hand_pose"},
             # {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
-            {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
-            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
+            {'params': [self.betas], 'lr': 1e-4, "name": "betas"},
+            {'params': [self.hand_scale], 'lr': 1e-4, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)

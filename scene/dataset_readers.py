@@ -77,9 +77,9 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
     
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
-        # if not (idx % 20 == 0 or idx == len(cam_extrinsics) - 1):
-        #     continue
-        if not idx in [0, 3, 6, 9]:
+        if idx > 85 and idx < 105:
+            continue
+        elif idx % 2 == 1:
             continue
 
         sys.stdout.write('\r')
