@@ -63,7 +63,7 @@ def debug_hand_gauss(hand_gaussians,
 
     return merged_gaussians, merged_view_R, None
 
-def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
+def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, make_vid, fps):
     splat_path, splat_dir = get_splat_path(splat_res_dir, target_itr=None)
 
     gaussians = GaussianMeshModel(3)
@@ -119,6 +119,8 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
     renderer = None
 
     rotation_activation = torch.nn.functional.normalize
+
+    vid_writer = None
 
     for ind, entry in enumerate(splat_data):
         image_ind = int(entry["img_name"])
@@ -278,6 +280,14 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
         im_hand_path = os.path.join(output_dir, entry["img_name"] + '_hand.png')
         cv2.imwrite(im_hand_path, comb_hand_mask_im)
 
+        if make_vid:
+            if vid_writer is None:
+                vid_path = os.path.join(OUTPUT_DIR, 'res.mp4')
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                vid_writer = cv2.VideoWriter(vid_path, fourcc, fps, (image.shape[1], image.shape[0]))
+            vid_writer.write(image)
+
+
         if True or ind == 0:
             obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
                                               None, harmonic=True, should_copy=False)
@@ -301,12 +311,17 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir):
             hand_ply_path = os.path.join(output_dir, f'merged_{entry["img_name"]}_hand.ply')
             hand_gaussians.save_ply(hand_ply_path)
 
-EXP_NAME = '0_pruner_rotate'
+    if vid_writer is not None:
+        vid_writer.release()
+
+EXP_NAME = '1_prune_interact'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
 SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/data/{EXP_NAME}'
 IMAGE_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/undistorted'
 HAND_MASK_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/mask_hand'
 OUTPUT_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand/'
+MAKE_VID = True
+FPS=30
 with torch.no_grad():
-    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR)
+    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR, MAKE_VID, FPS)

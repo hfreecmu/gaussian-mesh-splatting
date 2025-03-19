@@ -77,9 +77,13 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
     
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
-        if idx > 85 and idx < 105:
-            continue
-        elif idx % 2 == 1:
+        # if idx > 85 and idx < 105:
+        #     continue
+        # elif idx % 2 == 1:
+        #     continue
+        # if not (idx % 4 == 0):
+        #     continue
+        if idx >= 4:
             continue
 
         sys.stdout.write('\r')
@@ -117,13 +121,13 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
-        image = Image.open(image_path)
+        image = copy.deepcopy(Image.open(image_path))
 
         mask_path = os.path.join(masks_folder, image_name + '.png')
-        hand_mask = Image.open(mask_path)
+        hand_mask = copy.deepcopy(Image.open(mask_path))
 
         obj_mask_path = os.path.join(obj_masks_folder, image_name + '.png')
-        obj_mask = Image.open(obj_mask_path)
+        obj_mask = copy.deepcopy(Image.open(obj_mask_path))
 
         # image = np.array(image)
         # image[hand_mask == 0.0] = [0, 0, 0]

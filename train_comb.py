@@ -652,7 +652,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
             # Log and save
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end),
                             testing_iterations, scene, render, (pipe, background))
-            if (iteration in saving_iterations):
+            if (iteration in saving_iterations or iteration % 20000 == 0):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
 
@@ -800,9 +800,11 @@ if __name__ == "__main__":
     # parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
     # parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
     parser.add_argument("--test_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
-                                                                           100_000, 120_000, 140_000, 160_000, 180_000])
+                                                                           100_000, 120_000, 140_000, 160_000, 180_000,
+                                                                           200_000, 300_000, 400_000, 500_000, 600_000])
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
-                                                                           100_000, 120_000, 140_000, 160_000, 180_000])
+                                                                           100_000, 120_000, 140_000, 160_000, 180_000,
+                                                                           200_000, 300_000, 400_000, 500_000, 600_000])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default=None)
@@ -838,4 +840,4 @@ if __name__ == "__main__":
     # All done
     print("\nTraining complete.")
 
-# python3 train_comb.py -s data/0_pruner_rotate/ -m output/0_pruner_rotate --gs_type gs_mesh --meshes 'mesh' --num_splats 3 --iterations 7000 --sh_degree 3 --resolution 1
+# python3 train_comb.py -s data/1_prune_interact/ -m output/1_prune_interact --gs_type gs_mesh --meshes 'mesh' --num_splats 1 --iterations 100000 --sh_degree 3 --resolution 1

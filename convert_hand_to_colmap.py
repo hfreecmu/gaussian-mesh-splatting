@@ -136,9 +136,9 @@ def run(data_dir, scene_dir, output_dir):
 
     print('Done')
 
-DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate'
+DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact'
 SCENE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/scenes/tree_scene'
-OUTPUT_DIR = 'data/0_pruner_rotate'
+OUTPUT_DIR = 'data/1_prune_interact'
 if __name__ == "__main__":
     if not os.path.exists(OUTPUT_DIR):
         os.mkdir(OUTPUT_DIR)
