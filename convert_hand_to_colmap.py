@@ -64,7 +64,7 @@ def run(data_dir, scene_dir, output_dir):
 
     filenames = []
     for filename in os.listdir(image_dir):
-        if not filename.endswith('.jpg'):
+        if not (filename.endswith('.jpg') or filename.endswith('.png')):
             continue
 
         filenames.append(filename)
@@ -136,9 +136,9 @@ def run(data_dir, scene_dir, output_dir):
 
     print('Done')
 
-DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/1_prune_interact'
+DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/3_cracker_box'
 SCENE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/scenes/tree_scene'
-OUTPUT_DIR = 'data/1_prune_interact'
+OUTPUT_DIR = 'data/3_cracker_box'
 if __name__ == "__main__":
     if not os.path.exists(OUTPUT_DIR):
         os.mkdir(OUTPUT_DIR)

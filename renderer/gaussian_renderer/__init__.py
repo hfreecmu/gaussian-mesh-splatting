@@ -28,7 +28,7 @@ def transform_vertices_function(vertices, c=1):
     return vertices
 
 def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
-              vertices=None, view_R=None, one_hot_labels=None):
+              vertices=None, view_R=None, one_hot_labels=None, color_offset=None):
     fx, fy, cx, cy = intrinsics
     image_height, image_width = dims
 
@@ -49,7 +49,7 @@ def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
                 )
         
     res_pkg = render(cam, gaussians, pipeline, background,
-                     vertices=vertices, view_R=view_R, one_hot_labels=one_hot_labels)
+                     vertices=vertices, view_R=view_R, one_hot_labels=one_hot_labels, color_offset=color_offset)
     return res_pkg
 
 def render(viewpoint_camera, pc : GaussianModel, pipe, 

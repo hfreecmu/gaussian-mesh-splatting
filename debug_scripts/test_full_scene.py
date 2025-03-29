@@ -10,6 +10,7 @@ import pytorch3d.transforms
 from vine_prune.utils import read_json, read_np_data
 from vine_prune.utils.mano import get_mano, scale_mano, get_faces
 from vine_prune.utils.general_utils import splat_to_image_color, read_mask
+from vine_prune.utils.io import read_pickle
 
 import sys
 sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
@@ -90,6 +91,15 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
 
     hand_one_hot_path = os.path.join(splat_dir, 'hand_one_hot.pth')
     hand_one_hot = torch.load(hand_one_hot_path)
+
+    color_path = os.path.join(splat_dir, 'color.pth')
+    if os.path.exists(color_path):
+        use_bg_color = True
+        scene_brightness = torch.load(color_path)
+        color_dict_path = os.path.join(splat_dir, 'color_dict.pkl')
+        scene_bright_map = read_pickle(color_dict_path)
+    else:
+        use_bg_color = False
 
     obj_rot = torch.from_numpy(mano_data['object']['global_orient']).float().cuda()
     obj_rot = pytorch3d.transforms.axis_angle_to_quaternion(obj_rot)
@@ -204,8 +214,14 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
         obj_one_hot_pad = torch.stack((torch.zeros_like(obj_one_hot), obj_one_hot), dim=-1)
         one_hot_labels = torch.concat((hand_one_hot_pad, obj_one_hot_pad))
 
+        if use_bg_color:
+            frame_scene_brightness = scene_brightness[scene_bright_map[image_ind]]
+        else:
+            frame_scene_brightness = None
+
         res_pgk = my_render(merged_gaussians, pipeline, background, intrinsics, dims, R.T, t,
-                            vertices=None, view_R=merged_view_R, one_hot_labels=one_hot_labels)
+                            vertices=None, view_R=merged_view_R, one_hot_labels=one_hot_labels,
+                            color_offset=frame_scene_brightness)
         image = splat_to_image_color(res_pgk['render'])
         image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
@@ -264,6 +280,8 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
         mesh_im = cv2.cvtColor(color, cv2.COLOR_RGB2BGR)
         
         orig_im_path = os.path.join(image_dir, entry["img_name"] + '.jpg')
+        if not os.path.exists(orig_im_path):
+            orig_im_path = os.path.join(image_dir, entry["img_name"] + '.png')
         orig_im = cv2.imread(orig_im_path)
 
         orig_hand_mask_path = os.path.join(hand_mask_dir, entry["img_name"] + '.png')
@@ -314,7 +332,7 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     if vid_writer is not None:
         vid_writer.release()
 
-EXP_NAME = '1_prune_interact'
+EXP_NAME = '3_cracker_box'
 SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
 SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/data/{EXP_NAME}'
@@ -322,6 +340,6 @@ IMAGE_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/und
 HAND_MASK_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/mask_hand'
 OUTPUT_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand/'
 MAKE_VID = True
-FPS=30
+FPS=10
 with torch.no_grad():
     run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR, MAKE_VID, FPS)

@@ -52,6 +52,7 @@ from scipy.spatial import cKDTree
 from pytorch3d.ops import knn_points
 import kaolin
 from vine_prune.alignment.fitting.utils import create_silhouette_renderer, create_meshes
+from vine_prune.utils.io import write_pickle
 
 def compute_mano_cano_sdf(mesh_v_cano, mesh_f_cano, x_cano):
     # distance = knn_points(x_cano, mesh_v_cano, K=1, return_nn=False)[0][:, :, 0]
@@ -308,7 +309,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     #     l_params.append({'params': [scene_rot], 'lr': 1e-3, "name": "scene_rot"})
     #     l_params.append({'params': [scene_trans], 'lr': 1e-3, "name": "scene_trans"})
 
-    optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
+    optimizer = torch.optim.Adam(l_params, lr=0, eps=1e-15)
 
     #obj_gaussians.training_setup(opt)
     #scene_gaussians.training_setup(opt)
@@ -576,12 +577,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # mano_gt_mask = torch.where(mano_mask > 0.5, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
         mano_gt_mask = torch.where(mano_mask > 0.1, torch.ones_like(mano_mask), torch.zeros_like(mano_mask))
-        mano_mask_to_use = torch.where(gt_object_mask > 0.0, torch.zeros_like(mano_mask), mano_mask)
+        # mano_mask_to_use = torch.where(gt_object_mask > 0.0, torch.zeros_like(mano_mask), mano_mask)
 
         # should mano mask loss be back prop?
         sel_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
         # mano_mask_loss = l1_loss(mano_mask_to_use, gt_hand_mask)
-        mano_mask_loss = 0.0
+        #mano_mask_loss = 0.0
 
         # py_scene.remove_node(camera_node)
         # py_scene.remove_node(light_node)
@@ -591,19 +592,32 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         v3d_tips = vertices[contact_idx]
         v3d_object = cano_obj_pts @ obj_rot_frame.T + obj_trans_frame
 
-        contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0), K=1, return_nn=False)[0]
+        contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0).detach(), K=1, return_nn=False)[0]
         contact_loss = contact_loss.mean()
 
         # sdf = compute_mano_cano_sdf(vertices.unsqueeze(0), hand_faces_torch, v3d_object.unsqueeze(0)).squeeze(0)
-        # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).mean()
+        # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).sum()
         #sdf_loss = torch.clamp(-sdf, min=-0.005, max=0.1).mean()
 
         # loss = 0.5*loss + 0.75*hand_mask_loss + 0.75*obj_mask_loss + 0.75*sel_loss + 1.15*mano_mask_loss + 0.1*contact_loss #+ 0.5*sdf_loss#+ color_loss
         rgb_coeff = 1.0
-        mask_coeff = 1.1 *  torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
-        sel_coeff = 1.1 *  torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
 
-        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + sel_coeff*sel_loss + 1.15*mano_mask_loss + 0.2*contact_loss #+ 0.5*sdf_loss#+ color_loss
+        # iter_lim = 10000
+        # iter_lim = 80000
+        # if iteration < iter_lim:
+        #     mask_coeff = 1.1 * torch.linspace(1.1, 0.1, iter_lim)[iteration]
+        #     sel_coeff = 1.1 * torch.linspace(1.1, 0.1, iter_lim)[iteration]
+        # else:
+        #     mask_coeff = 0.1
+        #     sel_coeff = 0.1
+        mask_coeff = torch.linspace(2.0, 0.2, opt.iterations + 1)[iteration]
+        sel_coeff = torch.linspace(2.0, 0.2, opt.iterations + 1)[iteration]
+        con_coeff = 0.2
+
+        # scale_reg_loss = torch.sum(gaussians._scale ** 2)
+        # scale_reg_coeff = 1e-6
+
+        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + sel_coeff*sel_loss + con_coeff*contact_loss #+ scale_reg_coeff*scale_reg_loss #+ 0.5*sdf_loss#+ color_loss
 
         # if iteration > 1000:
         #     loss += 0.2*sdf_loss
@@ -678,6 +692,13 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
                 path_hand_one_hot = os.path.join(point_cloud_path, 'hand_one_hot.pth')
                 torch.save(hand_one_hot, path_hand_one_hot)
+
+                if use_bg_color:
+                    path_color = os.path.join(point_cloud_path, 'color.pth')
+                    torch.save(scene_brightness, path_color)
+
+                    path_color_dict = os.path.join(point_cloud_path, 'color_dict.pkl')
+                    write_pickle(path_color_dict, scene_bright_map)
 
             # # Densification
             # if (args.gs_type == "gs") or (args.gs_type == "gs_flat"):
