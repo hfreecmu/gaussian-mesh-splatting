@@ -101,19 +101,19 @@ def run(data_dir, scene_dir, output_dir):
 
     storePly(ply_path, xyz, rgb)
 
-    scene_splat_path = os.path.join(scene_dir, 'splat', 'scale.ply')
-    col_scene_splat_path = os.path.join(output_dir, 'scene.ply')
-    shutil.copyfile(scene_splat_path, col_scene_splat_path)
+    # scene_splat_path = os.path.join(scene_dir, 'splat', 'scale.ply')
+    # col_scene_splat_path = os.path.join(output_dir, 'scene.ply')
+    # shutil.copyfile(scene_splat_path, col_scene_splat_path)
 
     obj_splat_path = os.path.join(data_dir, 'meshes', 'obj_splat.ply')
     col_obj_splat_path = os.path.join(output_dir, 'obj_splat.ply')
     shutil.copyfile(obj_splat_path, col_obj_splat_path)
 
-    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_fit_opt.npy')
-    # ho_path = os.path.join(data_dir, 'hand_obj', 'hold_ref_init_ho.npy')
+    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho_fit.npy')
     ho_data = read_np_data(ho_path)
-    scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
-    scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan
+    
+    # scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
+    # scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan
 
     # scene_pose_dir = os.path.join(data_dir, 'scene_registration', 'cam_poses')
     # for filename in os.listdir(scene_pose_dir):
@@ -134,11 +134,15 @@ def run(data_dir, scene_dir, output_dir):
     col_ho_path = os.path.join(output_dir, 'hold_init_ho_scene.npy')
     np.save(col_ho_path, ho_data)
 
+    sdf_path = os.path.join(data_dir, 'meshes', 'sdf.pkl')
+    col_sdf_path = os.path.join(output_dir, 'sdf.pkl')
+    shutil.copyfile(sdf_path, col_sdf_path)
+
     print('Done')
 
-DATA_DIR = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/3_cracker_box'
-SCENE_DIR = '/home/hfreeman/harry_ws/gopro/datasets/scenes/tree_scene'
-OUTPUT_DIR = 'data/3_cracker_box'
+DATA_DIR = '/home/hfreeman/harry_ws/repos/pruner_track/datasets/ABF12'
+SCENE_DIR = None
+OUTPUT_DIR = 'data/ABF12'
 if __name__ == "__main__":
     if not os.path.exists(OUTPUT_DIR):
         os.mkdir(OUTPUT_DIR)

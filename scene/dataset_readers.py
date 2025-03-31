@@ -87,6 +87,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
         #     continue
         # if not idx in [43, 30, 0, 95]:
         #     continue
+        # if not idx in [43, 95]:
+        #     continue
 
         sys.stdout.write('\r')
         # the exact output you're looking for:

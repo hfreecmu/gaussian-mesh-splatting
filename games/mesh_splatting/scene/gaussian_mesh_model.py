@@ -21,14 +21,6 @@ from utils.general_utils import inverse_sigmoid, rot_to_quat_batch
 from utils.sh_utils import RGB2SH
 from games.mesh_splatting.utils.graphics_utils import MeshPointCloud
 
-# hardcoding this for now
-# HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/hand_only/hand_obj/hold_fit_smooth_fb.npy'
-#HAND_PATH = '/home/hfreeman/harry_ws/gopro/datasets/simple_manip/0_pruner_rotate/hand_obj/hold_fit_smooth_fb.npy'
-
-# def read_np_data(path):
-#     return np.load(path, allow_pickle=True).item()
-# HAND_DATA = read_np_data(HAND_PATH)
-
 class GaussianMeshModel(GaussianModel):
 
     def __init__(self, sh_degree: int):
@@ -49,29 +41,9 @@ class GaussianMeshModel(GaussianModel):
         self.triangles = None
         self.eps_s0 = 1e-8
 
-        # self.harmonic_mlp = nn.Sequential(
-        #     nn.Linear(19, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 128),
-        #     nn.ReLU(),
-        #     nn.Linear(128, 45)
-        # ).cuda()
-
     @property
     def get_xyz(self):
         return self._xyz
-    
-    def get_features_mlp(self, betas, hand_pose):
-        raise RuntimeError('not supported')
-        xyz = self._xyz
-        betas = betas.repeat(xyz.shape[0], 1)
-        hand_pose = hand_pose.repeat(xyz.shape[0], 1)
-
-        model_input = torch.concatenate((xyz, betas, hand_pose), dim=1)
-
-        features_dc = self._features_dc
-        features_rest = self._features_rest + self.harmonic_mlp(model_input).view(-1, 15, 3)
-        return torch.cat((features_dc, features_rest), dim=1)
 
     def create_from_pcd(self, pcd: MeshPointCloud, spatial_lr_scale: float):
 
@@ -95,7 +67,7 @@ class GaussianMeshModel(GaussianModel):
         features[:, 3:, 1:] = 0.0
 
         # opacities = inverse_sigmoid(0.1 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
-        opacities = inverse_sigmoid(0.9 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
+        opacities = inverse_sigmoid(0.95 * torch.ones((pcd.points.shape[0], 1), dtype=torch.float, device="cuda"))
         self.clamp_opacity_inv = opacities[0, 0]
 
         # self.vertices = nn.Parameter(
@@ -116,15 +88,7 @@ class GaussianMeshModel(GaussianModel):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        # self.global_orient = nn.Parameter(torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda())
-        # self.transl = nn.Parameter(torch.from_numpy(HAND_DATA['right']['transl']).float().cuda())
-        # self.hand_pose = nn.Parameter(torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda())
-        # self.betas = nn.Parameter(torch.from_numpy(HAND_DATA['right']['betas'][0:1]).float().cuda())
-
-        # self.global_orient = torch.from_numpy(HAND_DATA['right']['global_orient']).float().cuda()
-        # self.transl = torch.from_numpy(HAND_DATA['right']['transl']).float().cuda()
-        # self.hand_pose = torch.from_numpy(HAND_DATA['right']['hand_pose']).float().cuda()
-        # self.betas = torch.from_numpy(HAND_DATA['right']['betas']).float().cuda()
+        self.clamp_scale_val = 2.0
 
     def set_hand_data(self, mano_data):
         self.global_orient = nn.Parameter(torch.from_numpy(mano_data['right']['global_orient']).float().cuda())
@@ -237,10 +201,6 @@ class GaussianMeshModel(GaussianModel):
         alpha1 + alpha2 + alpha3 = 1
         and alpha1 + alpha2 +alpha3 >= 0
         """
-        #self.alpha = torch.relu(self._alpha) + 1e-8
-        #self.alpha = self.alpha / self.alpha.sum(dim=-1, keepdim=True)
-        #self.triangles = self.vertices[self.faces]
-        #self._calc_xyz()
         alpha = torch.relu(self._alpha) + 1e-8
         alpha = alpha / alpha.sum(dim=-1, keepdim=True)
         triangles = vertices[self.faces]
@@ -320,12 +280,11 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scale], 'lr': training_args.scaling_lr, "name": "scaling"},
 
-            {'params': [self.global_orient], 'lr': 1e-4, "name": "global_orient"},
-            {'params': [self.transl], 'lr': 1e-4, "name": "transl"},
-            {'params': [self.hand_pose], 'lr': 1e-5, "name": "hand_pose"},
-            # {'params': [self.betas], 'lr': 1e-2, "name": "betas"},
-            {'params': [self.betas], 'lr': 1e-4, "name": "betas"},
-            {'params': [self.hand_scale], 'lr': 1e-4, "name": "hand_scale"}
+            {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
+            {'params': [self.transl], 'lr': 1e-3, "name": "transl"},
+            {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
+            {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
+            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -361,9 +320,6 @@ class GaussianMeshModel(GaussianModel):
         path_model = path.replace('point_cloud.ply', 'model_params.pt')
         torch.save(save_dict, path_model)
 
-        # path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
-        # torch.save(self.harmonic_mlp.state_dict(), path_harmonic_mlp)
-
     def load_ply(self, path):
         self._load_ply(path)
         path_model = path.replace('point_cloud.ply', 'model_params.pt')
@@ -380,9 +336,6 @@ class GaussianMeshModel(GaussianModel):
         self._alpha = nn.Parameter(alpha)
         self._scale = nn.Parameter(scale)
 
-        #path_harmonic_mlp = path.replace('point_cloud.ply', 'h_mlp.pt')
-        #self.harmonic_mlp.load_state_dict(torch.load(path_harmonic_mlp))
-
         self.global_orient = nn.Parameter(params['global_orient'])
         self.transl = nn.Parameter(params['transl'])
         self.hand_pose = nn.Parameter(params['hand_pose'])
@@ -398,3 +351,8 @@ class GaussianMeshModel(GaussianModel):
         opacities_new = torch.clamp(self._opacity, min=self.clamp_opacity_inv)
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
+
+    def clamp_scale(self):
+        scales_new = torch.clamp(self._scale, max=self.clamp_scale_val)
+        optimizable_tensors = self.replace_tensor_to_optimizer(scales_new, "scaling")
+        self._scale = optimizable_tensors["scaling"]

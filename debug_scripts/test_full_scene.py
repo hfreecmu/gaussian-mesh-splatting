@@ -13,7 +13,7 @@ from vine_prune.utils.general_utils import splat_to_image_color, read_mask
 from vine_prune.utils.io import read_pickle
 
 import sys
-sys.path.append('/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting')
+sys.path.append('/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting')
 # from scene import GaussianModel
 from games.mesh_splatting.scene.gaussian_mesh_model import GaussianMeshModel
 from argparse import ArgumentParser
@@ -332,13 +332,13 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     if vid_writer is not None:
         vid_writer.release()
 
-EXP_NAME = '3_cracker_box'
-SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/output/{EXP_NAME}'
+EXP_NAME = 'ABF12'
+SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
-SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/gaussian-mesh-splatting/data/{EXP_NAME}'
-IMAGE_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/undistorted'
-HAND_MASK_DIR = f'/home/hfreeman/harry_ws/gopro/datasets/simple_manip/{EXP_NAME}/mask_hand'
-OUTPUT_DIR = '/home/hfreeman/harry_ws/gopro/debug_vis/vis_gauss_hand/'
+SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/data/{EXP_NAME}'
+IMAGE_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{EXP_NAME}/undistorted'
+HAND_MASK_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{EXP_NAME}/mask_hand'
+OUTPUT_DIR = '/home/hfreeman/Downloads/vis_gauss_hand'
 MAKE_VID = True
 FPS=10
 with torch.no_grad():
