@@ -1,3 +1,4 @@
+import argparse
 import os
 import shutil
 import numpy as np
@@ -9,6 +10,7 @@ from scipy.spatial.transform import Rotation
 
 from scene.dataset_readers import storePly
 from vine_prune.utils.io import read_np_data
+from vine_prune.utils.paths import get_base_data_dir
 
 def symlink(src, dst):
     if not os.path.exists(dst):
@@ -140,10 +142,37 @@ def run(data_dir, scene_dir, output_dir):
 
     print('Done')
 
-DATA_DIR = '/home/hfreeman/harry_ws/repos/pruner_track/datasets/ABF12'
-SCENE_DIR = None
-OUTPUT_DIR = 'data/ABF12'
+def main(args):
+    model_name = args.model_name
+    is_dexycb = args.is_dexycb
+
+    base_data_dir = get_base_data_dir(is_dexycb)
+    data_dir = os.path.join(base_data_dir, model_name)
+
+    scene_dir=None
+
+    if is_dexycb:
+        dexycb_dir = os.path.join('data', 'DEXYCB')
+        if not os.path.exists(dexycb_dir):
+            os.mkdir(dexycb_dir)
+        output_dir = os.path.join(dexycb_dir, model_name)
+    else:
+        output_dir = os.path.join('data', model_name)
+
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+
+    run(data_dir, scene_dir, output_dir)
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument('--is_dexycb', action='store_true')
+
+    args = parser.parse_args()
+    return args
+
 if __name__ == "__main__":
-    if not os.path.exists(OUTPUT_DIR):
-        os.mkdir(OUTPUT_DIR)
-    run(DATA_DIR, SCENE_DIR, OUTPUT_DIR)
+    args = parse_args()
+
+    main(args)

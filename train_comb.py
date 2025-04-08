@@ -46,6 +46,11 @@ import copy
 from utils.rotation_main import rotate_splat_cuda, rotate_splat_cuda_angle
 from vine_prune.utils.io import write_pickle, read_pickle
 import torch.nn.functional as F
+from utils.graphics_utils import fov2focal, c2c_orig
+
+import pyrender
+import trimesh
+#from pytorch3d.ops import knn_points
 
 def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     """Returns a transformation from OpenGL to OpenCV camera frame.
@@ -57,6 +62,9 @@ def get_opengl_to_opencv_camera_trans() -> np.ndarray:
     yz_flip = np.eye(4, dtype=np.float32)
     yz_flip[1, 1], yz_flip[2, 2] = -1, -1
     return yz_flip
+
+def get_opencv_to_opengl_camera_trans():
+    return np.linalg.inv(get_opengl_to_opencv_camera_trans())
 
 def disable_grad(gaussians: GaussianModel, full=False):
     gaussians._xyz.requires_grad_(False)
@@ -173,8 +181,17 @@ def sample_sdf(sdf, min_bound, spacing, pts):
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
              debug_from, save_xyz, use_bg_color=False):
     
+    ### pyrender stuff
+    # ambient_light = np.array([0.1, 0.1, 0.1, 1.0])
+    # py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
+    # renderer = None
+    # render_flags = pyrender.constants.RenderFlags.DEPTH_ONLY
+    # cv2_to_gl = get_opencv_to_opengl_camera_trans()
+    ###
+    
     ###
     mano = get_mano()
+    # contact_idx = torch.LongTensor(get_contact_idx())
     ###
     
     first_iter = 0
@@ -202,6 +219,7 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     obj_rot = nn.Parameter(obj_rot)
     obj_trans = torch.from_numpy(mano_data['object']['transl']).float().cuda()
     obj_trans = nn.Parameter(obj_trans)
+    # hand_faces = get_faces()
 
     scene = Scene(dataset, gaussians)
 
@@ -210,6 +228,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
     hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5
     hand_one_hot = nn.Parameter(hand_one_hot)
+
+    # cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d_splat']).cuda()
+    # cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d']).cuda()
 
     sdf_dict = read_pickle(os.path.join(dataset.source_path, 'sdf.pkl'))
     sdf_torch = torch.FloatTensor(sdf_dict['sdf']).cuda()
@@ -315,6 +336,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         obj_rot_frame = pytorch3d.transforms.quaternion_to_matrix(rotation_activation(obj_rot[image_ind:image_ind+1])).squeeze(0)
         obj_trans_frame = obj_trans[image_ind:image_ind+1].squeeze(0)
+        # if iteration < 10000:
+        #     obj_rot_frame = obj_rot_frame.detach()
+        #     obj_trans_frame = obj_trans_frame.detach()
 
         obj_gaussians_trans = trans_gaussians(obj_gaussians, obj_rot_frame, obj_trans_frame, 
                                               None, harmonic=False, should_copy=False)
@@ -367,12 +391,48 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         hand_label_res = label_res[0:1]
         obj_label_res = label_res[1:2]
 
+        # sel_hand_gaussian_model, sel_view_R_hand, sel_one_hot_labels_hand = sel_gaussians(merged_gaussians, merged_view_R, 
+        #                                                                                   one_hot_labels[:, 0:1], torch.arange(hand_xyz.shape[0]))
+        # hand_render_pkg = render(viewpoint_cam, sel_hand_gaussian_model, pipe, bg, 
+        #                     vertices=None, view_R=sel_view_R_hand,
+        #                     one_hot_labels=sel_one_hot_labels_hand,
+        #                     )
+        # sel_hand_label_res = hand_render_pkg['extra']
+
         # Loss
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
 
         hand_mask_loss = l1_loss(hand_label_res, gt_hand_mask)
         obj_mask_loss = l1_loss(obj_label_res, gt_object_mask)
+
+        # trimesh_model = trimesh.Trimesh(vertices.detach().cpu().numpy(), hand_faces)
+        # mesh = pyrender.Mesh.from_trimesh(trimesh_model)
+        # fx = fov2focal(viewpoint_cam.FoVx, gt_image.shape[2])
+        # fy = fov2focal(viewpoint_cam.FoVy, gt_image.shape[1])
+        # cx = c2c_orig(viewpoint_cam.cx, gt_image.shape[2])
+        # cy = c2c_orig(viewpoint_cam.cy, gt_image.shape[1])
+        # camera = pyrender.IntrinsicsCamera(fx=fx,fy=fy,cx=cx,cy=cy)
+        # if renderer is None:
+        #     renderer = pyrender.OffscreenRenderer(gt_image.shape[2], gt_image.shape[1])
+        # mesh_node = py_scene.add(mesh)
+        # # camera is always has world trans
+        # cam_pose = np.eye(4)
+        # cam_node = py_scene.add(camera, pose=cam_pose @ cv2_to_gl)
+
+        # depth = renderer.render(py_scene, flags=render_flags)[None]
+        # mano_gt_mask = torch.zeros_like(gt_hand_mask)
+        # mano_gt_mask[depth > 0] = 1.0
+
+        # py_scene.remove_node(cam_node)
+        # py_scene.remove_node(mesh_node)
+
+        # sel_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
+
+        # v3d_tips = vertices[contact_idx]
+        # v3d_object = cano_obj_pts @ obj_rot_frame.T + obj_trans_frame
+        # contact_loss = knn_points(v3d_tips.unsqueeze(0), v3d_object.unsqueeze(0).detach(), K=1, return_nn=False)[0]
+        # contact_loss = contact_loss.mean()
 
         obj_rot_frame_inv = obj_rot_frame.T
         obj_trans_frame_inv = -obj_rot_frame_inv@obj_trans_frame
@@ -383,8 +443,11 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         rgb_coeff = torch.linspace(0.1, 1.0, opt.iterations + 1)[iteration]
         mask_coeff = torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
         sdf_coeff = 0.1
+        # sel_coeff = 1.1
+        #con_coeff = torch.linspace(0.2, 0.0, opt.iterations + 1)[iteration]
 
-        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + sdf_coeff*sdf_loss
+        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + \
+               sdf_coeff*sdf_loss
 
         losses.append(loss)
 

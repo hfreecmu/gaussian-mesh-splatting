@@ -7,10 +7,9 @@ import torchvision
 import pyrender
 import pytorch3d.transforms
 
-from vine_prune.utils import read_json, read_np_data
 from vine_prune.utils.mano import get_mano, scale_mano, get_faces
 from vine_prune.utils.general_utils import splat_to_image_color, read_mask
-from vine_prune.utils.io import read_pickle
+from vine_prune.utils.io import read_pickle, read_json, read_np_data
 
 import sys
 sys.path.append('/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting')
@@ -332,14 +331,18 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     if vid_writer is not None:
         vid_writer.release()
 
-EXP_NAME = 'ABF12'
-SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/{EXP_NAME}'
+EXP_NAME = '000778'
+SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/DEXYCB/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
-SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/data/{EXP_NAME}'
-IMAGE_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{EXP_NAME}/undistorted'
-HAND_MASK_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{EXP_NAME}/mask_hand'
-OUTPUT_DIR = '/home/hfreeman/Downloads/vis_gauss_hand'
+# SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/data/{EXP_NAME}'
+SPLAT_DATA_DIR=None
+IMAGE_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/undistorted'
+HAND_MASK_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/mask_hand'
+OUTPUT_DIR = f'/home/hfreeman/Downloads/vis_gauss_hand/{EXP_NAME}'
 MAKE_VID = True
 FPS=10
+
+if not os.path.exists(OUTPUT_DIR):
+    os.mkdir(OUTPUT_DIR)
 with torch.no_grad():
     run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR, MAKE_VID, FPS)
