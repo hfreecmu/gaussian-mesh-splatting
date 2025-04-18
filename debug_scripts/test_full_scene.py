@@ -63,7 +63,8 @@ def debug_hand_gauss(hand_gaussians,
 
     return merged_gaussians, merged_view_R, None
 
-def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, make_vid, fps):
+def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, make_vid, fps,
+        mano_data_path):
     splat_path, splat_dir = get_splat_path(splat_res_dir, target_itr=None)
 
     gaussians = GaussianMeshModel(3)
@@ -82,7 +83,8 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     obj_gaussians = GaussianModel(3)
     obj_gaussians.load_ply(obj_splat_path)
 
-    mano_data_path = os.path.join(splat_dir, 'hold_opt_ho.npy')
+    if mano_data_path is None:
+        mano_data_path = os.path.join(splat_dir, 'hold_opt_ho.npy')
     mano_data = read_np_data(mano_data_path)
 
     obj_one_hot_path = os.path.join(splat_dir, 'obj_one_hot.pth')
@@ -331,8 +333,10 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     if vid_writer is not None:
         vid_writer.release()
 
-EXP_NAME = '000778'
-SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/DEXYCB/{EXP_NAME}'
+EXP_NAME = '3_000663'
+MANO_DATA_PATH = None
+# MANO_DATA_PATH = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/hand_obj/hold_refine_ho_fine.npy'
+SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/DEXYCB/{EXP_NAME}_REFINE'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
 # SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/data/{EXP_NAME}'
 SPLAT_DATA_DIR=None
@@ -345,4 +349,5 @@ FPS=10
 if not os.path.exists(OUTPUT_DIR):
     os.mkdir(OUTPUT_DIR)
 with torch.no_grad():
-    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR, MAKE_VID, FPS)
+    run(SPLAT_RES_DIR, SPLAT_DATA_DIR, IMAGE_DIR, HAND_MASK_DIR, OUTPUT_DIR, MAKE_VID, FPS,
+        MANO_DATA_PATH)

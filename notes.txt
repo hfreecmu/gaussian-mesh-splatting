@@ -1,0 +1,14 @@
+I generally do not know if this is better than the last AABF12 or dexycb commits.
+
+I say this because some results on dexycb in previous trials were better. Although now I am not using splatting to update the object pose. So who knows.
+
+This will require serious re-testing.
+
+Things you changed (could be more, see commit):
+- now not optimizing obj pose
+- sdf changes (loss and how done)
+- sdf detach (should obj be detached?)
+- no more separate learned one hot mask, just setting to 1.0 and using splat opacities
+- rgb and mask loss is different as it scales linearly
+- no more hand scale
+- background color opt?

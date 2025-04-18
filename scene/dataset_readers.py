@@ -81,7 +81,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
         #     continue
         # elif idx % 2 == 1:
         #     continue
-        # if not (idx % 4 == 0):
+        # if not (idx % 8 == 0):
         #     continue
         # if idx >= 1:
         #     continue
@@ -89,7 +89,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
         #     continue
         # if not idx in [43, 95]:
         #     continue
-        # if not idx in [0]:
+        # if not idx in [65]:
         #     continue
 
         sys.stdout.write('\r')

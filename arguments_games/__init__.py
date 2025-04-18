@@ -16,7 +16,7 @@ from arguments import ParamGroup
 
 class OptimizationParamsMesh(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 30_000
+        # self.iterations = 30_000
         self.vertices_lr = 0.0  # 0.00016
         self.alpha_lr = 0.001
         self.feature_lr = 0.0025
@@ -26,6 +26,9 @@ class OptimizationParamsMesh(ParamGroup):
         self.random_background = False
         self.use_mesh = True
         self.lambda_dssim = 0.2
+
+        self.num_per_frame = 1000
+        self.freeze_obj = False
 
         self.percent_dense = 0.01
         self.position_lr_init = 0.00016

@@ -96,7 +96,8 @@ class GaussianMeshModel(GaussianModel):
         self.transl = nn.Parameter(torch.from_numpy(mano_data['right']['transl']).float().cuda())
         self.hand_pose = nn.Parameter(torch.from_numpy(mano_data['right']['hand_pose']).float().cuda())
         self.betas = nn.Parameter(torch.from_numpy(mano_data['right']['betas'][0:1]).float().cuda())
-        self.hand_scale = nn.Parameter(torch.from_numpy(mano_data['right']['scale']).float().cuda())
+        # self.hand_scale = nn.Parameter(torch.from_numpy(mano_data['right']['scale']).float().cuda())
+        self.hand_scale = torch.from_numpy(mano_data['right']['scale']).float().cuda()
 
     def _calc_xyz(self):
         """
@@ -285,7 +286,7 @@ class GaussianMeshModel(GaussianModel):
             {'params': [self.transl], 'lr': 1e-3, "name": "transl"},
             {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
             {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
-            {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
+            # {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
         ]
 
         self.optimizer = torch.optim.Adam(l_params, lr=0.0, eps=1e-15)
@@ -341,7 +342,8 @@ class GaussianMeshModel(GaussianModel):
         self.transl = nn.Parameter(params['transl'])
         self.hand_pose = nn.Parameter(params['hand_pose'])
         self.betas = nn.Parameter(params['betas'])
-        self.hand_scale = nn.Parameter(params['hand_scale'])
+        # self.hand_scale = nn.Parameter(params['hand_scale'])
+        self.hand_scale = params['hand_scale']
 
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.max(self.get_opacity, torch.ones_like(self.get_opacity)*0.05))

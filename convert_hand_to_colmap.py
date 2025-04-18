@@ -19,7 +19,7 @@ def symlink(src, dst):
 def read_np_data(path):
     return np.load(path, allow_pickle=True).item()
 
-def run(data_dir, scene_dir, output_dir):
+def run(data_dir, scene_dir, output_dir, is_refine):
     image_dir = os.path.join(data_dir, 'undistorted')
     masks_dir = os.path.join(data_dir, 'mask_hand')
     obj_masks_dir = os.path.join(data_dir, 'mask_obj')
@@ -111,8 +111,15 @@ def run(data_dir, scene_dir, output_dir):
     col_obj_splat_path = os.path.join(output_dir, 'obj_splat.ply')
     shutil.copyfile(obj_splat_path, col_obj_splat_path)
 
-    ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho_fit.npy')
+    if not is_refine:
+        # ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho_fit.npy')
+        ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho.npy')
+    else:
+        ho_path = os.path.join(data_dir, 'hand_obj', 'hold_refine_ho_fine.npy')
+
     ho_data = read_np_data(ho_path)
+    if not 'scale' in ho_data['right']:
+        ho_data['right']['scale'] = np.array(1.0)
     
     # scene_go = np.zeros_like(ho_data['right']['global_orient']) + np.nan
     # scene_tr = np.zeros_like(ho_data['right']['transl']) + np.nan
@@ -144,6 +151,7 @@ def run(data_dir, scene_dir, output_dir):
 
 def main(args):
     model_name = args.model_name
+    is_refine = args.is_refine
     is_dexycb = args.is_dexycb
 
     base_data_dir = get_base_data_dir(is_dexycb)
@@ -151,22 +159,28 @@ def main(args):
 
     scene_dir=None
 
+    if not is_refine:
+        dirname = model_name
+    else:
+        dirname = f'{model_name}_REFINE'
+
     if is_dexycb:
         dexycb_dir = os.path.join('data', 'DEXYCB')
         if not os.path.exists(dexycb_dir):
             os.mkdir(dexycb_dir)
-        output_dir = os.path.join(dexycb_dir, model_name)
+        output_dir = os.path.join(dexycb_dir, dirname)
     else:
-        output_dir = os.path.join('data', model_name)
+        output_dir = os.path.join('data', dirname)
 
     if not os.path.exists(output_dir):
         os.mkdir(output_dir)
 
-    run(data_dir, scene_dir, output_dir)
+    run(data_dir, scene_dir, output_dir, is_refine)
 
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_name", type=str, required=True)
+    parser.add_argument('--is_refine', action='store_true')
     parser.add_argument('--is_dexycb', action='store_true')
 
     args = parser.parse_args()

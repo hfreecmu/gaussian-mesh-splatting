@@ -37,7 +37,7 @@ except ImportError:
 
 import numpy as np
 from scene.gaussian_model import GaussianModel
-from vine_prune.utils.mano import get_mano, scale_mano, get_faces, get_contact_idx
+from vine_prune.utils.mano import get_mano, scale_mano, call_mano, get_faces, get_contact_idx
 from vine_prune.utils.io import read_np_data
 import pytorch3d.transforms
 import torch.nn as nn
@@ -179,15 +179,14 @@ def sample_sdf(sdf, min_bound, spacing, pts):
     return sampled
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, use_bg_color=False):
-    
-    ### pyrender stuff
+             debug_from, save_xyz, use_bg_color=True):
+    ## pyrender stuff
     # ambient_light = np.array([0.1, 0.1, 0.1, 1.0])
     # py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
     # renderer = None
     # render_flags = pyrender.constants.RenderFlags.DEPTH_ONLY
     # cv2_to_gl = get_opencv_to_opengl_camera_trans()
-    ###
+    ##
     
     ###
     mano = get_mano()
@@ -216,18 +215,22 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
     obj_rot = torch.from_numpy(mano_data['object']['global_orient']).float().cuda()
     obj_rot = pytorch3d.transforms.axis_angle_to_quaternion(obj_rot)
-    obj_rot = nn.Parameter(obj_rot)
     obj_trans = torch.from_numpy(mano_data['object']['transl']).float().cuda()
-    obj_trans = nn.Parameter(obj_trans)
+
     # hand_faces = get_faces()
 
     scene = Scene(dataset, gaussians)
 
-    obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5
-    obj_one_hot = nn.Parameter(obj_one_hot)
+    #obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.5
+    # obj_one_hot = obj_gaussians.get_opacity.detach().squeeze(-1)
+    # obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 0.9
+    #obj_one_hot = nn.Parameter(obj_one_hot)
+    obj_one_hot = torch.zeros(obj_gaussians._xyz.shape[0]).float().cuda() + 1.0
 
-    hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5
-    hand_one_hot = nn.Parameter(hand_one_hot)
+    #hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.5
+    # hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 0.9
+    #hand_one_hot = nn.Parameter(hand_one_hot)
+    hand_one_hot = torch.zeros(gaussians._xyz.shape[0]).float().cuda() + 1.0
 
     # cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d_splat']).cuda()
     # cano_obj_pts = torch.FloatTensor(mano_data['object']['cano_v3d']).cuda()
@@ -238,6 +241,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     spacing_torch = torch.FloatTensor(sdf_dict['spacing']).cuda()
 
     num_frames = len(scene.getTrainCameras().copy())
+    opt.iterations = num_frames * opt.num_per_frame
+    saving_iterations.append(opt.iterations)
 
     if use_bg_color:
         scene_brightness = torch.zeros(num_frames, 3).float().cuda()
@@ -247,17 +252,23 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         scene_bright_count = 0
 
     rotation_activation = nn.functional.normalize
-    l_params = [
-        {'params': [obj_rot], 'lr': 1e-3, "name": "obj_rot"},
-        {'params': [obj_trans], 'lr': 1e-3, "name": "obj_trans"},
-        {'params': [obj_one_hot], 'lr': 1e-4, "name": "obj_one_hot"},
-        {'params': [hand_one_hot], 'lr': 1e-4, "name": "gauss_one_hot"},
-    ]
+    # l_params = [
+    #     {'params': [obj_one_hot], 'lr': 1e-4, "name": "obj_one_hot"},
+    #     {'params': [hand_one_hot], 'lr': 1e-4, "name": "hand_one_hot"},
+    # ]
+    l_params = []
+
+    if not opt.freeze_obj:
+        obj_rot = nn.Parameter(obj_rot)
+        obj_trans = nn.Parameter(obj_trans)
+        l_params.append({'params': [obj_rot], 'lr': 1e-3, "name": "obj_rot"})
+        l_params.append({'params': [obj_trans], 'lr': 1e-3, "name": "obj_trans"})
 
     if use_bg_color:
-        l_params.append({'params': [scene_brightness], 'lr': 1e-4, "name": "scene_brightness"})
+        l_params.append({'params': [scene_brightness], 'lr': 1e-3, "name": "scene_brightness"})
 
-    optimizer = torch.optim.Adam(l_params, lr=0, eps=1e-15)
+    if len(l_params) > 0:
+        optimizer = torch.optim.Adam(l_params, lr=0, eps=1e-15)
 
     ###
 
@@ -276,7 +287,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
     ema_loss_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-    BATCH_SIZE = min(50, len(scene.getTrainCameras()))
+    BATCH_SIZE = min(51, len(scene.getTrainCameras()))
+    # can_temp_loss = False
     losses = []
     for iteration in range(first_iter, opt.iterations + 1):
         os.makedirs(f"{scene.model_path}/xyz", exist_ok=True)
@@ -311,6 +323,9 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack) - 1))
 
+        # if not viewpoint_stack:
+        #     can_temp_loss = True
+
         # Render
         if (iteration - 1) == debug_from:
             pipe.debug = True
@@ -336,7 +351,8 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         obj_rot_frame = pytorch3d.transforms.quaternion_to_matrix(rotation_activation(obj_rot[image_ind:image_ind+1])).squeeze(0)
         obj_trans_frame = obj_trans[image_ind:image_ind+1].squeeze(0)
-        # if iteration < 10000:
+
+        # if iteration < 100*num_frames:
         #     obj_rot_frame = obj_rot_frame.detach()
         #     obj_trans_frame = obj_trans_frame.detach()
 
@@ -345,14 +361,17 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         view_R_obj = (obj_rot_frame.T).repeat(obj_gaussians_trans._xyz.shape[0], 1, 1)
 
         
-        mano_out = mano(global_orient=global_orient,
-                        hand_pose=hand_pose,
-                        betas=betas,
-                        )
+        # mano_out = mano(global_orient=global_orient,
+        #                 hand_pose=hand_pose,
+        #                 betas=betas,
+        #                 )
         
-        scale_mano(mano_out, mano, betas, hand_scale) 
+        # scale_mano(mano_out, mano, betas, hand_scale) 
+        # vertices = mano_out.vertices + transl[:, None]
+
+        mano_out = call_mano(mano, hand_pose, betas, global_orient, transl, hand_scale)
+        vertices = mano_out.vertices
         
-        vertices = mano_out.vertices + transl[:, None]
         vertices = vertices[0]
 
         _, hand_rots, _ = gaussians.get_xyz_from_verts(vertices)
@@ -391,13 +410,43 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         hand_label_res = label_res[0:1]
         obj_label_res = label_res[1:2]
 
-        # sel_hand_gaussian_model, sel_view_R_hand, sel_one_hot_labels_hand = sel_gaussians(merged_gaussians, merged_view_R, 
-        #                                                                                   one_hot_labels[:, 0:1], torch.arange(hand_xyz.shape[0]))
+        ###
+        # _, hand_rots_2, _ = gaussians.get_xyz_from_verts(vertices.detach())
+        # hand_rots_r_2 = pytorch3d.transforms.quaternion_to_matrix(hand_rots_2)
+        # view_R_hand_2 = hand_rots_r_2.permute(0, 2, 1)
+
+        # obj_gaussians_trans_2 = trans_gaussians(obj_gaussians, obj_rot_frame.detach(), obj_trans_frame.detach(), 
+        #                                         None, harmonic=False, should_copy=False)
+        # view_R_obj_2 = (obj_rot_frame.T).repeat(obj_gaussians_trans._xyz.shape[0], 1, 1).detach()
+
+        # hand_xyz_2, hand_rots_2, hand_scaling_2 = gaussians.get_xyz_from_verts(vertices.detach(), activate=False)
+        
+        # merged_gaussians_2, merged_view_R_2 = merge_gaussians(gaussians, obj_gaussians_trans_2, None,
+        #                                                                   view_R_hand_2, view_R_obj_2, None,
+        #                                                                   hand_xyz_2, hand_rots_2, hand_scaling_2,
+        #                                                                   include_scene=False)
+        # sel_hand_gaussian_model, sel_view_R_hand, sel_one_hot_labels_hand = sel_gaussians(merged_gaussians_2, merged_view_R_2, 
+        #                                                                                   one_hot_labels[:, 0:1], torch.arange(hand_xyz_2.shape[0]))
         # hand_render_pkg = render(viewpoint_cam, sel_hand_gaussian_model, pipe, bg, 
         #                     vertices=None, view_R=sel_view_R_hand,
         #                     one_hot_labels=sel_one_hot_labels_hand,
         #                     )
         # sel_hand_label_res = hand_render_pkg['extra']
+
+        # num_splat_pts = obj_gaussians.get_xyz.shape[0]
+        # num_hand_pts = hand_xyz_2.shape[0]
+        # sel_obj_gaussian_model, sel_view_R_obj, sel_one_hot_labels_obj = sel_gaussians(merged_gaussians_2, merged_view_R_2, 
+        #                                                                                 one_hot_labels[:, 1:2], 
+        #                                                                                 torch.arange(num_splat_pts) + num_hand_pts)
+        
+        # obj_render_pkg = render(viewpoint_cam, sel_obj_gaussian_model, pipe, bg, 
+        #                     vertices=None, view_R=sel_view_R_obj,
+        #                     one_hot_labels=sel_one_hot_labels_obj,
+        #                     )
+
+        # sel_obj_label_res = obj_render_pkg['extra']
+        # sel_obj_alpha = obj_render_pkg['alpha'].detach()
+        ###
 
         # Loss
         Ll1 = l1_loss(image, gt_image)
@@ -426,8 +475,12 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         # py_scene.remove_node(cam_node)
         # py_scene.remove_node(mesh_node)
+        
+        # sel_hand_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
 
-        # sel_loss = l1_loss(sel_hand_label_res, mano_gt_mask)
+        # obj_gt_mask = torch.zeros_like(sel_obj_alpha)
+        # obj_gt_mask[sel_obj_alpha > 0.1] = 1.0
+        # sel_obj_loss = l1_loss(sel_obj_label_res, obj_gt_mask)
 
         # v3d_tips = vertices[contact_idx]
         # v3d_object = cano_obj_pts @ obj_rot_frame.T + obj_trans_frame
@@ -436,20 +489,29 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         obj_rot_frame_inv = obj_rot_frame.T
         obj_trans_frame_inv = -obj_rot_frame_inv@obj_trans_frame
+        obj_rot_frame_inv = obj_rot_frame_inv.detach()
+        obj_trans_frame_inv = obj_trans_frame_inv.detach()
         vertices_obj_cano = vertices @ obj_rot_frame_inv.T + obj_trans_frame_inv
         sdf = sample_sdf(sdf_torch, min_bound_torch, spacing_torch, vertices_obj_cano)
         sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).sum()
 
         rgb_coeff = torch.linspace(0.1, 1.0, opt.iterations + 1)[iteration]
-        mask_coeff = torch.linspace(1.1, 0.1, opt.iterations + 1)[iteration]
-        sdf_coeff = 0.1
+        # rgb_coeff = 0.2
+        mask_coeff = torch.linspace(1.1, 0.5, opt.iterations + 1)[iteration]
+        # mask_coeff = 1.1
+        # sdf_coeff = 0.1
+        sdf_coeff = torch.linspace(0.0, 0.1, opt.iterations + 1)[iteration]
         # sel_coeff = 1.1
         #con_coeff = torch.linspace(0.2, 0.0, opt.iterations + 1)[iteration]
 
         loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + \
-               sdf_coeff*sdf_loss
+               sdf_coeff*sdf_loss #+ mask_coeff*sel_hand_loss + mask_coeff*sel_obj_loss
 
         losses.append(loss)
+
+        def diff_loss(x):
+            return ((x[1:] - x[:-1])**2).sum(dim=-1).mean()
+            # return F.mse_loss(x[1:], x[:-1])
 
         if len(losses) == BATCH_SIZE:
             losses = torch.stack(losses).mean()
@@ -461,14 +523,39 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none=True)
 
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
+                if len(l_params) > 0:
+                    optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
 
                 gaussians.clamp_opacity()
                 gaussians.clamp_scale()
 
+            # if can_temp_loss:
+            #     loss_hand_trans = diff_loss(gaussians.transl) 
+            #     #loss_hand_pose = diff_loss(gaussians.hand_pose)
+
+            #     loss_obj_trans = diff_loss(obj_trans)
+
+            #     # obj_rot_vec = pytorch3d.transforms.quaternion_to_axis_angle(rotation_activation(obj_rot))
+            #     # loss_obj_rot = diff_loss(obj_rot_vec)
+                
+            #     temp_loss = loss_hand_trans * 1.0 + loss_obj_trans * 1.0 #+ loss_hand_pose * 0.01
+
+            #     temp_loss.backward()
+            #     gaussians.optimizer.step()
+            #     gaussians.optimizer.zero_grad(set_to_none=True)
+
+            #     if len(l_params) > 0:
+            #         optimizer.step()
+            #         optimizer.zero_grad(set_to_none=True)
+
+            #     # gaussians.clamp_opacity()
+            #     # gaussians.clamp_scale()
+
+            #     can_temp_loss = False
+
             losses = []
-        
+
         iter_end.record()
 
         with torch.no_grad():
@@ -598,14 +685,9 @@ if __name__ == "__main__":
     parser.add_argument("--meshes", nargs="+", type=str, default=[])
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
-    # parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
-    # parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
-    parser.add_argument("--test_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
-                                                                           100_000, 120_000, 140_000, 160_000, 180_000,
-                                                                           200_000, 300_000, 400_000, 500_000, 600_000])
-    parser.add_argument("--save_iterations", nargs="+", type=int, default=[2_000, 7_000, 20_000, 30_000, 40_000, 50_000, 60_000, 90_000,
-                                                                           100_000, 120_000, 140_000, 160_000, 180_000,
-                                                                           200_000, 300_000, 400_000, 500_000, 600_000])
+    parser.add_argument("--test_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[7_000, 20_000, 30_000, 60_000, 90_000])
+
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default=None)
@@ -621,7 +703,7 @@ if __name__ == "__main__":
     pp = PipelineParams(parser)
     args = parser.parse_args(sys.argv[1:])
 
-    args.save_iterations.append(args.iterations)
+    # args.save_iterations.append(args.iterations)
 
     print("torch cuda: ", torch.cuda.is_available())
     print("Optimizing " + args.model_path)
