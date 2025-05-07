@@ -88,7 +88,8 @@ class GaussianMeshModel(GaussianModel):
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        self.clamp_scale_max = 2.0
+        # self.clamp_scale_max = 2.0
+        self.clamp_scale_max = 3.0
         self.clamp_scale_min = -100.0
 
     def set_hand_data(self, mano_data):
@@ -284,7 +285,8 @@ class GaussianMeshModel(GaussianModel):
 
             {'params': [self.global_orient], 'lr': 1e-3, "name": "global_orient"},
             {'params': [self.transl], 'lr': 1e-3, "name": "transl"},
-            {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
+            # {'params': [self.hand_pose], 'lr': 1e-4, "name": "hand_pose"},
+            {'params': [self.hand_pose], 'lr': 5e-4, "name": "hand_pose"},
             {'params': [self.betas], 'lr': 1e-3, "name": "betas"},
             # {'params': [self.hand_scale], 'lr': 1e-3, "name": "hand_scale"}
         ]

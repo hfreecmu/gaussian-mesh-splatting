@@ -179,7 +179,7 @@ def sample_sdf(sdf, min_bound, spacing, pts):
     return sampled
 
 def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint,
-             debug_from, save_xyz, use_bg_color=True):
+             debug_from, save_xyz, use_bg_color=False):
     ## pyrender stuff
     # ambient_light = np.array([0.1, 0.1, 0.1, 1.0])
     # py_scene = pyrender.Scene(bg_color=np.zeros(4), ambient_light=ambient_light)
@@ -336,9 +336,13 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         gt_image = viewpoint_cam.original_image.cuda()
         gt_hand_mask = viewpoint_cam.hand_mask.cuda()
         gt_object_mask = viewpoint_cam.object_mask.cuda()
+        gt_human_mask = viewpoint_cam.human_mask.cuda()
 
         net_mask = torch.clamp(gt_hand_mask + gt_object_mask, 0.0, 1.0)
         gt_image = torch.where(net_mask > 0, gt_image, torch.zeros_like(gt_image))
+
+        invalid_mask = gt_human_mask * (1 - gt_hand_mask)
+        valid_pix = 1 - invalid_mask
 
         image_name = viewpoint_cam.image_name
         image_ind = int(image_name)
@@ -368,7 +372,6 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         
         # scale_mano(mano_out, mano, betas, hand_scale) 
         # vertices = mano_out.vertices + transl[:, None]
-
         mano_out = call_mano(mano, hand_pose, betas, global_orient, transl, hand_scale)
         vertices = mano_out.vertices
         
@@ -449,11 +452,13 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
         ###
 
         # Loss
-        Ll1 = l1_loss(image, gt_image)
-        loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        valid_pix_3 = torch.concatenate([valid_pix]*3)
+        Ll1 = l1_loss(image[valid_pix_3 > 0], gt_image[valid_pix_3 > 0])
+        # rgb_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+        rgb_loss = Ll1
 
-        hand_mask_loss = l1_loss(hand_label_res, gt_hand_mask)
-        obj_mask_loss = l1_loss(obj_label_res, gt_object_mask)
+        hand_mask_loss = l1_loss(hand_label_res[valid_pix > 0], gt_hand_mask[valid_pix > 0])
+        obj_mask_loss = l1_loss(obj_label_res[valid_pix > 0], gt_object_mask[valid_pix > 0])
 
         # trimesh_model = trimesh.Trimesh(vertices.detach().cpu().numpy(), hand_faces)
         # mesh = pyrender.Mesh.from_trimesh(trimesh_model)
@@ -489,29 +494,39 @@ def training(gs_type, dataset, opt, pipe, testing_iterations, saving_iterations,
 
         obj_rot_frame_inv = obj_rot_frame.T
         obj_trans_frame_inv = -obj_rot_frame_inv@obj_trans_frame
-        obj_rot_frame_inv = obj_rot_frame_inv.detach()
-        obj_trans_frame_inv = obj_trans_frame_inv.detach()
+        # obj_rot_frame_inv = obj_rot_frame_inv.detach()
+        # obj_trans_frame_inv = obj_trans_frame_inv.detach()
         vertices_obj_cano = vertices @ obj_rot_frame_inv.T + obj_trans_frame_inv
         sdf = sample_sdf(sdf_torch, min_bound_torch, spacing_torch, vertices_obj_cano)
-        sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).sum()
+        # sdf_loss = torch.clamp(-sdf, min=0.00, max=0.05).sum()
+        sdf_loss = torch.abs(torch.clamp(-sdf, min=0.0, max=0.01)).sum()
 
-        rgb_coeff = torch.linspace(0.1, 1.0, opt.iterations + 1)[iteration]
-        # rgb_coeff = 0.2
-        mask_coeff = torch.linspace(1.1, 0.5, opt.iterations + 1)[iteration]
+        # rgb_coeff = torch.linspace(0.1, 1.0, opt.iterations + 1)[iteration]
+        rgb_coeff = 1.0
+
+        sdf_coeff = 0.01
+
+        # mask_coeff = torch.linspace(1.1, 0.5, opt.iterations + 1)[iteration]
+        if iteration < 30000:
+            mask_coeff = torch.linspace(1.1, 0.1, 30000)[iteration]
+        else:
+            mask_coeff = 0.1
+
         # mask_coeff = 1.1
         # sdf_coeff = 0.1
-        sdf_coeff = torch.linspace(0.0, 0.1, opt.iterations + 1)[iteration]
+        # sdf_coeff = torch.linspace(0.0, 0.1, opt.iterations + 1)[iteration]
         # sel_coeff = 1.1
         #con_coeff = torch.linspace(0.2, 0.0, opt.iterations + 1)[iteration]
 
-        loss = rgb_coeff*loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + \
-               sdf_coeff*sdf_loss #+ mask_coeff*sel_hand_loss + mask_coeff*sel_obj_loss
 
+        loss = rgb_coeff*rgb_loss + mask_coeff*hand_mask_loss + mask_coeff*obj_mask_loss + \
+               sdf_coeff*sdf_loss #+ mask_coeff*sel_hand_loss + mask_coeff*sel_obj_loss
+        
         losses.append(loss)
 
-        def diff_loss(x):
-            return ((x[1:] - x[:-1])**2).sum(dim=-1).mean()
-            # return F.mse_loss(x[1:], x[:-1])
+        # def diff_loss(x):
+        #     return ((x[1:] - x[:-1])**2).sum(dim=-1).mean()
+        #     # return F.mse_loss(x[1:], x[:-1])
 
         if len(losses) == BATCH_SIZE:
             losses = torch.stack(losses).mean()

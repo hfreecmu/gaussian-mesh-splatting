@@ -28,7 +28,8 @@ def transform_vertices_function(vertices, c=1):
     return vertices
 
 def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
-              vertices=None, view_R=None, one_hot_labels=None, color_offset=None):
+              vertices=None, view_R=None, one_hot_labels=None, color_offset=None,
+              is_tensor=True):
     fx, fy, cx, cy = intrinsics
     image_height, image_width = dims
 
@@ -40,7 +41,11 @@ def my_render(gaussians, pipeline, background, intrinsics, dims, R, T,
 
     dummy_image = torch.ones(3, image_height, image_width).float().to('cuda')
     
-    cam = Camera(colmap_id=None, R=R.detach().cpu().numpy(), T=T.detach().cpu().numpy(), 
+    if is_tensor:
+        R = R.detach().cpu().numpy()
+        T = T.detach().cpu().numpy()
+        
+    cam = Camera(colmap_id=None, R=R, T=T, 
                 FoVx=FoVx, FoVy=FoVy, 
                 cx=cx, cy=cy,
                 image=dummy_image, 

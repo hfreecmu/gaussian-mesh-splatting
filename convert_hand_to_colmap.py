@@ -23,14 +23,17 @@ def run(data_dir, scene_dir, output_dir, is_refine):
     image_dir = os.path.join(data_dir, 'undistorted')
     masks_dir = os.path.join(data_dir, 'mask_hand')
     obj_masks_dir = os.path.join(data_dir, 'mask_obj')
+    human_masks_dir = os.path.join(data_dir, 'mask_human')
 
     col_image_dir = os.path.join(output_dir, 'images')
     col_masks_dir = os.path.join(output_dir, 'masks')
     col_obj_masks_dir = os.path.join(output_dir, 'mask_obj')
+    col_human_masks_dir = os.path.join(output_dir, 'mask_human')
 
     symlink(os.path.abspath(image_dir), os.path.abspath(col_image_dir))
     symlink(os.path.abspath(masks_dir), os.path.abspath(col_masks_dir))
     symlink(os.path.abspath(obj_masks_dir), os.path.abspath(col_obj_masks_dir))
+    symlink(os.path.abspath(human_masks_dir), os.path.abspath(col_human_masks_dir))
 
     sparse_dir = os.path.join(output_dir, 'sparse')
     if not os.path.exists(sparse_dir):
@@ -115,7 +118,8 @@ def run(data_dir, scene_dir, output_dir, is_refine):
         # ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho_fit.npy')
         ho_path = os.path.join(data_dir, 'hand_obj', 'hold_init_ho.npy')
     else:
-        ho_path = os.path.join(data_dir, 'hand_obj', 'hold_refine_ho_fine.npy')
+        # ho_path = os.path.join(data_dir, 'hand_obj', 'hold_refine_ho_fine.npy')
+        ho_path = os.path.join(data_dir, 'hand_obj', 'hold_refine_ho_demi.npy')
 
     ho_data = read_np_data(ho_path)
     if not 'scale' in ho_data['right']:
@@ -153,8 +157,9 @@ def main(args):
     model_name = args.model_name
     is_refine = args.is_refine
     is_dexycb = args.is_dexycb
+    is_ho3d = args.is_ho3d
 
-    base_data_dir = get_base_data_dir(is_dexycb)
+    base_data_dir = get_base_data_dir(is_dexycb, is_ho3d=is_ho3d)
     data_dir = os.path.join(base_data_dir, model_name)
 
     scene_dir=None
@@ -169,6 +174,11 @@ def main(args):
         if not os.path.exists(dexycb_dir):
             os.mkdir(dexycb_dir)
         output_dir = os.path.join(dexycb_dir, dirname)
+    elif is_ho3d:
+        ho3d_dir = os.path.join('data', 'HO3D')
+        if not os.path.exists(ho3d_dir):
+            os.mkdir(ho3d_dir)
+        output_dir = os.path.join(ho3d_dir, dirname)
     else:
         output_dir = os.path.join('data', dirname)
 
@@ -182,6 +192,7 @@ def parse_args():
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument('--is_refine', action='store_true')
     parser.add_argument('--is_dexycb', action='store_true')
+    parser.add_argument('--is_ho3d', action='store_true')
 
     args = parser.parse_args()
     return args

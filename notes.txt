@@ -12,3 +12,14 @@ Things you changed (could be more, see commit):
 - rgb and mask loss is different as it scales linearly
 - no more hand scale
 - background color opt?
+- no more pose init
+
+
+
+New commit:
+    - changed clamp_scale_max to 3.0
+    - changed hand_pose lr to self.hand_pose
+    - added valid pix loss for human mask BUT not for ssim TODO fix that
+    - modified sdf loss ranges
+    - fixed rgb coeff to 1.0 and sdf loss fixed
+    - changed how mask coeff was decreased

@@ -333,15 +333,17 @@ def run(splat_res_dir, splat_data_dir, image_dir, hand_mask_dir, output_dir, mak
     if vid_writer is not None:
         vid_writer.release()
 
-EXP_NAME = '3_000663'
+EXP_NAME = '1_matzos'
+DATA_TYPE = ''
+
 MANO_DATA_PATH = None
-# MANO_DATA_PATH = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/hand_obj/hold_refine_ho_fine.npy'
-SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/DEXYCB/{EXP_NAME}_REFINE'
+# MANO_DATA_PATH = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/HO3D/{EXP_NAME}/hand_obj/hold_refine_ho_fine.npy'
+SPLAT_RES_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/output/{DATA_TYPE}/{EXP_NAME}'
 # SPLAT_RES_DIR = f'output/0_pruner_rotate_single'
 # SPLAT_DATA_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/submodules/gaussian-mesh-splatting/data/{EXP_NAME}'
 SPLAT_DATA_DIR=None
-IMAGE_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/undistorted'
-HAND_MASK_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/DEXYCB/{EXP_NAME}/mask_hand'
+IMAGE_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{DATA_TYPE}/{EXP_NAME}/undistorted'
+HAND_MASK_DIR = f'/home/hfreeman/harry_ws/repos/pruner_track/datasets/{DATA_TYPE}/{EXP_NAME}/mask_hand'
 OUTPUT_DIR = f'/home/hfreeman/Downloads/vis_gauss_hand/{EXP_NAME}'
 MAKE_VID = True
 FPS=10

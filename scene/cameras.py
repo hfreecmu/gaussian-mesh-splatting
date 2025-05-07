@@ -20,6 +20,7 @@ class Camera(nn.Module):
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  hand_mask=None,
                  object_mask=None,
+                 human_mask=None,
                  ):
         super(Camera, self).__init__()
 
@@ -53,6 +54,11 @@ class Camera(nn.Module):
             self.object_mask = object_mask.clamp(0.0, 1.0)
         else:
             self.object_mask = None
+
+        if human_mask is not None:
+            self.human_mask = human_mask.clamp(0.0, 1.0)
+        else:
+            self.human_mask = None
 
         if gt_alpha_mask is not None:
             self.original_image *= gt_alpha_mask.to(self.data_device)
